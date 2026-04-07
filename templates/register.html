@@ -12,7 +12,10 @@
             <h1>🛠️ CloudForge</h1>
             <p>새로운 대장간 계정 생성</p>
         </div>
-        <form action="/register" method="POST" onsubmit="return validateForm()">
+
+        <div id="errorAlert" class="error-msg" style="display: none;"></div>
+
+        <form id="registerForm" action="/register" method="POST" onsubmit="return validateForm()">
             <div class="input-group">
                 <input type="text" name="username" placeholder="아이디" required>
             </div>
