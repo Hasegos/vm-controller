@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from core.vm_manager import VMwareController
 from sqlalchemy.orm import Session
 from crud import vm as vm_crud
-from models.user import User
+from models.user_model import User
 
 async def create_new_vm_task(db: Session, user: User, os_type: str):
 
