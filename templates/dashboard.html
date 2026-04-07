@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>CloudForge | 대시보드</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body>
+    <div class="forge-card dashboard-card">
+        <header class="dashboard-header">
+            <h2>🚀 CloudForge</h2>
+            <button class="logout-btn" onclick="location.href='/logout'">로그아웃</button>
+        </header>
+
+        <section class="forge-section">
+            <p class="section-title">새 인프라 생성</p>
+            <div class="forge-controls">
+                <select id="osSelect">
+                    <option value="rocky9">Rocky Linux 9</option>
+                    <option value="ubuntu22">Ubuntu 22.04</option>
+                </select>
+                <button id="btnForge" class="forge-submit-btn">생성</button>
+            </div>
+        </section>
+
+        <h3>내 인프라 목록</h3>
+        <div class="vm-list-container" id="vmList">
+            <p id="emptyMsg" class="empty-msg">활성화된 서버가 없습니다.</p>
+        </div>
+    </div>
+
+    <script src="../static/js/dashboard.js"></script>
+</body>
+</html>

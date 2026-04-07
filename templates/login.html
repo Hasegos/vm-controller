@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>CloudForge | 로그인</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+    <link rel="stylesheet" href="/static/css/auth.css">
+</head>
+<body>
+    <div class="forge-card auth-card">
+    <div class="auth-header">
+        <h1>🛠️ CloudForge</h1>
+        <p>인프라 제어실에 접속하세요</p>
+    </div>
+    <form action="/login" method="POST">
+        <div class="input-group">
+            <input type="text" name="username" placeholder="아이디" required>
+        </div>
+        <div class="input-group">
+            <input type="password" name="password" placeholder="비밀번호" required>
+        </div>
+        <button type="submit" class="auth-btn">제어실 입장</button>
+    </form>
+    <div class="link-group">
+        <a href="/register">처음이신가요? 회원가입</a>
+    </div>
+</div>
+</body>
+</html>

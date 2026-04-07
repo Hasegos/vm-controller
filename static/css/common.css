@@ -1,0 +1,55 @@
+:root {
+  --primary: #00d2ff;
+  --secondary: #3a7bd5;
+  --bg-dark: #0f172a;
+  --card-bg: #1e293b;
+  --input-bg: #0f172a;
+  --text: #f8fafc;
+  --text-muted: #94a3b8;
+  --border: rgba(255, 255, 255, 0.1);
+}
+
+body {
+  margin: 0;
+  font-family: 'Pretendard', -apple-system, sans-serif;
+  background-color: var(--bg-dark);
+  color: var(--text);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+}
+
+.forge-card {
+  background: var(--card-bg);
+  border-radius: 1rem;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+  border: 1px solid var(--border);
+  box-sizing: border-box;
+}
+
+h1, h2, h3 {
+  margin: 0;
+  color: var(--primary);
+}
+
+input, select {
+  width: 100%;
+  padding: 0.8rem;
+  border-radius: 0.5rem;
+  border: 1px solid #334155;
+  background: var(--input-bg);
+  color: white;
+  box-sizing: border-box;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  transition: transform 0.2s, filter 0.2s;
+}
+
+button:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.1);
+}

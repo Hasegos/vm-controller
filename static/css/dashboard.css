@@ -1,0 +1,116 @@
+/* 대시보드 카드 레이아웃 */
+.dashboard-card {
+  width: 90%;
+  max-width: 480px;
+  padding: 2rem;
+}
+
+/* 상단 헤더 섹션 */
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+/* 로그아웃 버튼 */
+.logout-btn {
+  background: #334155;
+  color: white;
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  border-radius: 0.4rem;
+  border: none;
+  white-space: nowrap;
+}
+
+/* 생성 폼 섹션 */
+.forge-section {
+  background: #0f172a;
+  padding: 1.5rem;
+  border-radius: 0.8rem;
+  margin-bottom: 2rem;
+}
+
+.section-title {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+  display: block;
+}
+
+.forge-controls {
+  display: flex;
+  gap: 0.8rem;
+  align-items: stretch;
+}
+
+/* 셀렉트 박스 커스텀 */
+#osSelect {
+  flex: 2;
+  background: #1e293b;
+  border: 1px solid #475569;
+  color: white;
+  padding: 0.7rem;
+  border-radius: 0.5rem;
+}
+
+/* 생성 버튼 */
+.forge-submit-btn {
+  flex: 1;
+  background: linear-gradient(90deg, var(--primary), var(--secondary));
+  color: white;
+  font-weight: bold;
+  border-radius: 0.5rem;
+  border: none;
+  padding: 0.7rem 1rem;
+  white-space: nowrap;
+  min-width: 80px;
+}
+
+/* 리스트 및 아이템 */
+.vm-list-container {
+  max-height: 250px;
+  overflow-y: auto;
+  margin-top: 1rem;
+}
+
+.vm-item {
+  background: #1e293b;
+  padding: 1rem;
+  border-radius: 0.6rem;
+  margin-bottom: 0.8rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid #334155;
+}
+
+.vm-name {
+  color: var(--primary);
+  font-weight: bold;
+  font-size: 0.9rem;
+  display: block;
+  margin-bottom: 0.2rem;
+}
+
+.vm-id {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.status-badge {
+  padding: 0.4rem 0.8rem;
+  border-radius: 2rem;
+  font-size: 0.7rem;
+  background: #3b82f6;
+  color: white;
+  font-weight: bold;
+}
+
+.empty-msg {
+  text-align: center;
+  font-size: 0.85rem;
+  color: #475569;
+  margin-top: 2rem;
+}

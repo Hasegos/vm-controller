@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>CloudForge | 회원가입</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+    <link rel="stylesheet" href="/static/css/auth.css">
+</head>
+<body>
+    <div class="forge-card auth-card">
+        <div class="auth-header">
+            <h1>🛠️ CloudForge</h1>
+            <p>새로운 대장간 계정 생성</p>
+        </div>
+        <form action="/register" method="POST" onsubmit="return validateForm()">
+            <div class="input-group">
+                <input type="text" name="username" placeholder="아이디" required>
+            </div>
+            <div class="input-group">
+                <input type="password" id="pw1" name="password" placeholder="비밀번호" required>
+            </div>
+            <div class="input-group">
+                <input type="password" id="pw2" placeholder="비밀번호 확인" required></div>
+            <button type="submit" class="auth-btn">계정 단조하기</button>
+        </form>
+        <div class="link-group">
+            <a href="/login">이미 계정이 있나요? 로그인</a>
+        </div>
+    </div>
+
+    <script src="../static/js/register.js"></script>
+</body>
+</html>
