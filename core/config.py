@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     POSTGRESQL_USERNAME: str
@@ -7,14 +7,19 @@ class Settings(BaseSettings):
     POSTGRESQL_PORT: str
     POSTGRESQL_DATABASE: str
     PROJECT_NAME:str = "CloudForge default"
-
+    
+    SECRET_KEY: str
+    ALGORITHM: str
+    ACCESS_TOKEN_EXPIRE_MINUTES: int
 
     @property
     def SQLALCHEMY_DATABASE_URL(self) -> str:
-        return f"postgresql://{self.POSTGRESQL_USERNAME}:{self.POSTGRESQL_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRESQL_PORT}/{self.POSTGRESQL_DATABASE}"
+        return f"postgresql://{self.POSTGRESQL_USERNAME}:{self.POSTGRESQL_PASSWORD}@{self.POSTGRESQL_SERVER}:{self.POSTGRESQL_PORT}/{self.POSTGRESQL_DATABASE}?client_encoding=utf8"
     
-
-    class Config:
-        env_file = "../.env"
+    
+    model_config = SettingsConfigDict(
+        env_file = ".env",
+        env_file_encoding = "utf-8"
+    )
 
 settings = Settings()
