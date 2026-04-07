@@ -10,7 +10,9 @@
     <div class="forge-card dashboard-card">
         <header class="dashboard-header">
             <h2>🚀 CloudForge</h2>
-            <button class="logout-btn" onclick="location.href='/logout'">로그아웃</button>
+            <form action="/logout" method="POST">
+                <button type="submit" class="logout-btn">로그아웃</button>
+            </form>     
         </header>
 
         <section class="forge-section">
