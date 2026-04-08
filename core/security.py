@@ -4,31 +4,42 @@ from typing import Optional
 from passlib.context import CryptContext
 from .config import settings
 
-# --- 비밀번호 관련 함수 ---  
-# 암호화 방식 설정 (BCrypt 알고리즘 사용)
+# ──────────────────────────────
+# 1. 비밀번호 해싱 설정 (BCrypt)
+# ──────────────────────────────
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def get_password_hash(password: str) -> str:
-  return pwd_context.hash(password)
+    """평문 비밀번호를 해시화하여 반환합니다."""
+    return pwd_context.hash(password)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-  return pwd_context.verify(plain_password, hashed_password)
+    """입력된 비밀번호와 DB의 해시값을 비교 검증합니다."""
+    return pwd_context.verify(plain_password, hashed_password)
 
-# --- JWT 관련 함수 ---
+# ────────────────────────
+# 2. JWT 액세스 토큰 생성
+# ────────────────────────
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    """JWT 액세스 토큰 생성"""
+    """
+    사용자 데이터를 담은 JWT 토큰을 생성합니다.
+    """
     to_encode = data.copy()
     
-    # 만료 시간 설정
+    # ──────────────────────────
+    # 2-1. 토큰 만료 시간 계산
+    # ──────────────────────────
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        # settings에 정의한 기본값(30분) 사용
+        # settings에 정의된 기본 만료 시간(예: 30분) 사용
         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode.update({"exp": expire})
     
-    # settings의 SECRET_KEY와 ALGORITHM 사용
+    # ──────────────────────────
+    # 2-2. JWT 서명 및 인코딩
+    # ──────────────────────────
     encoded_jwt = jwt.encode(
         to_encode, 
         settings.SECRET_KEY, 
@@ -36,21 +47,28 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     )
     return encoded_jwt
 
+# ──────────────────────────
+# 3. JWT 토큰 복호화 및 검증
+# ──────────────────────────
 def decode_access_token(token: str):
-    """JWT 토큰 복호화 및 검증"""
+    """
+    전달받은 토큰의 유효성을 검증하고 페이로드를 반환합니다.
+    """
     try:
-        # settings의 SECRET_KEY와 ALGORITHM 사용
+        # ──────────────────────────
+        # 3-1. 토큰 디코딩 시도
+        # ──────────────────────────
         payload = jwt.decode(
             token, 
             settings.SECRET_KEY, 
             algorithms=[settings.ALGORITHM]
         )
         return payload
-      
+
     except jwt.ExpiredSignatureError:
-        # 토큰 만료 시
-        return None
-      
+        # 토큰 유효 기간이 만료된 경우
+        return "expired"
+    
     except jwt.InvalidTokenError:
-        # 잘못된 토큰일 시
-        return None
+        # 서명이 일치하지 않거나 구조가 잘못된 토큰일 경우
+        return "invalid"
