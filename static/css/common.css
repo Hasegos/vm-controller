@@ -1,14 +1,20 @@
+/* ───────────────────
+  1. 전역 변수 설정
+  ─────────────────── */
 :root {
-  --primary: #00d2ff;
-  --secondary: #3a7bd5;
-  --bg-dark: #0f172a;
-  --card-bg: #1e293b;
-  --input-bg: #0f172a;
-  --text: #f8fafc;
-  --text-muted: #94a3b8;
-  --border: rgba(255, 255, 255, 0.1);
+  --primary: #00d2ff;      /* 메인 포인트 컬러 */
+  --secondary: #3a7bd5;    /* 보조 포인트 컬러 */
+  --bg-dark: #0f172a;      /* 전체 배경색 */
+  --card-bg: #1e293b;      /* 카드 컴포넌트 배경색 */
+  --input-bg: #0f172a;     /* 입력창 배경색 */
+  --text: #f8fafc;         /* 기본 텍스트 색상 */
+  --text-muted: #94a3b8;   /* 비활성/부연 텍스트 색상 */
+  --border: rgba(255, 255, 255, 0.1); /* 경계선 투명도 설정 */
 }
 
+/* ───────────────────
+  2. 기본 바디 스타일
+  ─────────────────── */
 body {
   margin: 0;
   font-family: 'Pretendard', -apple-system, sans-serif;
@@ -17,9 +23,12 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 100vh;
+  min-height: 100vh; /* 화면 중앙 정렬을 위한 높이 설정 */
 }
 
+/* ───────────────────
+  3. 공통 카드 컴포넌트
+  ─────────────────── */
 .forge-card {
   background: var(--card-bg);
   border-radius: 1rem;
@@ -28,6 +37,9 @@ body {
   box-sizing: border-box;
 }
 
+/* ───────────────────
+  4. 타이포그래피 및 입력 요소
+  ─────────────────── */
 h1, h2, h3 {
   margin: 0;
   color: var(--primary);
@@ -43,6 +55,9 @@ input, select {
   box-sizing: border-box;
 }
 
+/* ───────────────────
+  5. 공통 버튼 인터랙션
+  ─────────────────── */
 button {
   cursor: pointer;
   border: none;
@@ -50,6 +65,6 @@ button {
 }
 
 button:hover {
-  transform: translateY(-2px);
-  filter: brightness(1.1);
+  transform: translateY(-2px); /* 호버 시 살짝 떠오르는 효과 */
+  filter: brightness(1.1);     /* 호버 시 밝게 처리 */
 }

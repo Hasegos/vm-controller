@@ -1,11 +1,15 @@
-/* 대시보드 카드 레이아웃 */
+/* ───────────────────
+  1. 대시보드 메인 레이아웃
+  ─────────────────── */
 .dashboard-card {
   width: 90%;
   max-width: 480px;
   padding: 2rem;
 }
 
-/* 상단 헤더 섹션 */
+/* ───────────────────
+  2. 상단 헤더 및 로그아웃
+  ─────────────────── */
 .dashboard-header {
   display: flex;
   justify-content: space-between;
@@ -13,7 +17,6 @@
   margin-bottom: 2rem;
 }
 
-/* 로그아웃 버튼 */
 .logout-btn {
   background: #334155;
   color: white;
@@ -24,7 +27,9 @@
   white-space: nowrap;
 }
 
-/* 생성 폼 섹션 */
+/* ───────────────────
+  3. 서버 생성 섹션 (Forge)
+  ─────────────────── */
 .forge-section {
   background: #0f172a;
   padding: 1.5rem;
@@ -39,13 +44,13 @@
   display: block;
 }
 
+/* 폼 컨트롤 (셀렉트 박스 & 버튼) */
 .forge-controls {
   display: flex;
   gap: 0.8rem;
   align-items: stretch;
 }
 
-/* 셀렉트 박스 커스텀 */
 #osSelect {
   flex: 2;
   background: #1e293b;
@@ -55,7 +60,6 @@
   border-radius: 0.5rem;
 }
 
-/* 생성 버튼 */
 .forge-submit-btn {
   flex: 1;
   background: linear-gradient(90deg, var(--primary), var(--secondary));
@@ -68,13 +72,16 @@
   min-width: 80px;
 }
 
-/* 리스트 및 아이템 */
+/* ───────────────────
+  4. 가상 머신(VM) 리스트 영역
+  ─────────────────── */
 .vm-list-container {
   max-height: 250px;
-  overflow-y: auto;
+  overflow-y: auto; /* 리스트가 길어질 경우 스크롤 표시 */
   margin-top: 1rem;
 }
 
+/* 개별 서버 아이템 카드 */
 .vm-item {
   background: #1e293b;
   padding: 1rem;
@@ -99,6 +106,7 @@
   font-size: 0.75rem;
 }
 
+/* 상태 표시 배지 (Running, Creating 등) */
 .status-badge {
   padding: 0.4rem 0.8rem;
   border-radius: 2rem;
@@ -108,6 +116,7 @@
   font-weight: bold;
 }
 
+/* 서버가 없을 때 표시될 메시지 */
 .empty-msg {
   text-align: center;
   font-size: 0.85rem;

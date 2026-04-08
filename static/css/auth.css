@@ -1,9 +1,15 @@
+/* ───────────────────
+  1. 인증 카드 레이아웃 
+  ─────────────────── */
 .auth-card {
   width: 90%;
   max-width: 380px;
   padding: 2.5rem;
 }
 
+/* ───────────────────
+  2. 인증 헤더 및 텍스트
+  ─────────────────── */
 .auth-header {
   text-align: center;
   margin-bottom: 2rem;
@@ -15,10 +21,15 @@
   margin-top: 0.5rem;
 }
 
+/* ───────────────────
+  3. 입력 폼 및 버튼
+  ─────────────────── */
+/* 입력 필드 그룹 간격 */
 .input-group {
   margin-bottom: 1.2rem;
 }
 
+/* 로그인/회원가입 메인 버튼 */
 .auth-btn {
   width: 100%;
   padding: 1rem;
@@ -28,6 +39,9 @@
   border-radius: 0.5rem;
 }
 
+/* ───────────────────
+  4. 하단 링크 영역
+  ─────────────────── */
 .link-group {
   margin-top: 1.5rem;
   text-align: center;
@@ -39,7 +53,9 @@
   text-decoration: none;
 }
 
-/* auth.css 에 추가 또는 확인 */
+/* ───────────────────
+  5. 에러 메시지 알림창
+  ─────────────────── */
 .error-msg {
     background-color: rgba(255, 77, 77, 0.1);
     color: #ff4d4d;
@@ -49,5 +65,5 @@
     margin-bottom: 1.5rem;
     font-size: 0.85rem;
     text-align: center;
-    display: none; /* 초기에는 숨김 */
+    display: none; /* 유효성 검사 실패 시 js로 표시 */
 }
