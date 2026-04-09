@@ -1,79 +1,149 @@
 /**
- * ─────────────────────────────────────
- * 1. 서버 생성 이벤트 리스너 (Create VM)
- * ─────────────────────────────────────
+ * ─────────────────────────────────────────────────────────────
+ * 1. 서버 생성 이벤트 (인프라 신규 Forge)
+ * ─────────────────────────────────────────────────────────────
  */
 document.getElementById('btnForge').addEventListener('click', async () => {
     const osSelect = document.getElementById('osSelect');
     const osValue = osSelect.value;
-    const osText = osSelect.options[osSelect.selectedIndex].text;
     const btn = document.getElementById('btnForge');
     
-    // ──────────────────────────────────
-    // 1-1. 버튼 비활성화 (중복 클릭 방지)
-    // ──────────────────────────────────
+    // ─── 1. 버튼 UI 비활성화 (중복 클릭 방지) ───
     btn.disabled = true;
-    btn.innerText = "...";
+    const originalText = btn.innerText;
+    btn.innerText = "요청 중...";
 
     try {
-        // ────────────────────────────────
-        // 1-2. 비동기 생성 요청 (API 호출)
-        // ────────────────────────────────
-        const response = await fetch('/create-vm', {
+        // ─── 2. 생성 API 호출 ───
+        await apiRequest('/create-vm', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ os_type: osValue })
         });
         
-        if (!response.ok) throw new Error("서버 응답 오류");
-        const data = await response.json();
-        
-        // ──────────────────────────
-        // 1-3. UI 업데이트 (목록 갱신)
-        // ──────────────────────────
-        // 빈 목록 안내 메시지가 있다면 제거
-        const emptyMsg = document.getElementById('emptyMsg');
-        if (emptyMsg) emptyMsg.remove();
+        alert("인프라 생성이 시작되었습니다. 목록에서 상태를 확인하세요.");
 
-        // 1-4. 신규 VM 아이템 DOM 객체 생성
-        const vmItem = document.createElement('div');
-        vmItem.className = 'vm-item';
-
-        const infoContainer = document.createElement('div');
-        
-        const nameSpan = document.createElement('span');
-        nameSpan.className = 'vm-name';
-        nameSpan.textContent = osText;
-        
-        const idSpan = document.createElement('span');
-        idSpan.className = 'vm-id';
-        idSpan.textContent = `ID: ${data.task_id.substring(0, 8)}`;
-
-        const statusBadge = document.createElement('span');
-        statusBadge.className = 'status-badge';
-        statusBadge.textContent = '준비 중';
-
-        // ──────────────────────────
-        // 1-5. 요소 조립 및 화면 삽입
-        // ──────────────────────────
-        infoContainer.appendChild(nameSpan);
-        infoContainer.appendChild(idSpan);
-        vmItem.appendChild(infoContainer);
-        vmItem.appendChild(statusBadge);
-
-        // 생성된 아이템을 리스트의 가장 처음에 추가
-        const vmList = document.getElementById('vmList');
-        vmList.insertBefore(vmItem, vmList.firstChild);
+        // ─── 3. 즉시 상태 동기화 ───
+        await syncStatus(); 
 
     } catch (e) {
-        // 에러 발생 시 사용자 알림 및 로그 출력
-        alert("서버 연결 실패 또는 오류 발생");
-        console.error(e);
+        alert("생성 실패: " + e.message);
     } finally {
-        // ─────────────────
-        // 1-6. 상태 복구
-        // ─────────────────
+        // ─── 4. UI 복구 ───
         btn.disabled = false;
-        btn.innerText = "생성";
+        btn.innerText = originalText;
     }
 });
+
+/**
+ * ────────────────────────────────────────
+ * 2. 전원 제어 함수 (Start, Stop, Reboot)
+ * ────────────────────────────────────────
+ */
+async function controlVM(vmId, action) {
+    const vmItem = document.querySelector(`.vm-item[data-id="${vmId}"]`);
+    const statusBadge = vmItem.querySelector('.status-badge');
+    const buttons = vmItem.querySelectorAll('button');
+
+    // ─── 1. 위험 액션 컨펌 ───
+    if (action === 'stop_hard' && !confirm("강제 종료하시겠습니까? 데이터 손실 위험이 있습니다.")) {
+        return;
+    }
+
+    // ─── 2. 로컬 잠금 설정 (Race Condition 방지) ───
+    sessionStorage.setItem(`pending_lock_${vmId}`, 'true');
+
+    // ─── 3. UI 즉시 잠금 반영 ───
+    buttons.forEach(btn => btn.disabled = true);
+    statusBadge.textContent = "처리 중...";
+    statusBadge.className = "status-badge processing bg-primary";
+
+    try {
+        // ─── 4. 제어 API 호출 ───
+        await apiRequest(
+            `/vm/${vmId}/control?action=${action}`,
+            { method: 'POST' }
+        );        
+        await syncStatus();
+        
+    } catch (e) {
+        alert(e.message);
+        // ─── 5. 에러 시 잠금 해제 및 복구 ───
+        sessionStorage.removeItem(`pending_lock_${vmId}`);
+        syncStatus();
+    }
+}
+
+/**
+ * ────────────────────────────────────
+ * 3. 서버 상태 실시간 동기화 (Polling)
+ * ────────────────────────────────────
+ */
+async function syncStatus() {
+    try {
+        // ─── 1. 최신 상태 목록 조회 ───
+        const data = await apiRequest('/vms/status-list');
+        if (!data || !Array.isArray(data)) return;
+
+        data.forEach(vm => {
+            const row = document.querySelector(`.vm-item[data-id="${vm.id}"]`);
+            if (!row) return;
+
+            const badge = row.querySelector('.status-badge');
+            const btns = row.querySelectorAll('.control-btn');
+
+            // ─── 2. 잠금 조건 계산 ───
+            // [A] DB 기반 상태 체크 (작업 중 여부)
+            const isDbBusy = ['starting', 'stopping', 'rebooting', 'creating', 'processing'].includes(vm.status);
+            
+            // [B] 로컬 스토리지 기반 잠금 체크 (API 응답 전 찰나의 시간 대비)
+            const isLocalLocked = sessionStorage.getItem(`pending_lock_${vm.id}`) === 'true';
+
+            // [C] 잠금 해제: DB 상태가 '작업 중'으로 전환되었다면 로컬 잠금 해제
+            if (isDbBusy && isLocalLocked) {
+                sessionStorage.removeItem(`pending_lock_${vm.id}`);
+            }
+
+            // [D] 최종 UI 잠금 여부 결정
+            const finalLock = isDbBusy || isLocalLocked;
+            
+            // ─── 3. UI 업데이트 ───
+            updateBadgeUI(badge, vm.status);
+            btns.forEach(btn => {
+                btn.disabled = finalLock;
+            });
+        });
+    } catch (e) { 
+        showError(e)
+    }
+}
+
+/**
+ * ───────────────────────────────
+ * 4. 상태 배지 UI 렌더링 유틸리티
+ * ───────────────────────────────
+ */
+function updateBadgeUI(badge, status) {
+    const statusMap = {
+        'running': { text: '구동 중', class: 'bg-success' },
+        'stopped': { text: '정지됨', class: 'bg-secondary' },
+        'starting': { text: '부팅 중...', class: 'bg-warning' },
+        'stopping': { text: '종료 중...', class: 'bg-warning' },
+        'rebooting': { text: '재부팅 중...', class: 'bg-warning' },
+        'creating': { text: '생성 중...', class: 'bg-info' },
+        'error': { text: '오류', class: 'bg-danger' }
+    };
+    const info = statusMap[status] || { text: status, class: 'bg-dark' };
+    
+    if (badge.textContent !== info.text) {
+        badge.textContent = info.text;
+        badge.className = `status-badge ${info.class}`;
+    }
+}
+
+/**
+ * ─────────────────────────────────────
+ * 5. 주기적 실행 설정 (3초 간격 Polling)
+ * ─────────────────────────────────────
+ */
+document.addEventListener('DOMContentLoaded', syncStatus);
+setInterval(syncStatus, 3000);
