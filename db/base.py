@@ -1,6 +1,6 @@
 from db.base_class import Base
 from models.user_model import User
-from models.vm import VM
+from models.vm_model import VM
 
 # ─────────────────────────────────────
 # 1. 모델 통합 관리 (Alembic/Base 전용)
