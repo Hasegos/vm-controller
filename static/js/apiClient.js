@@ -7,17 +7,22 @@ async function apiRequest(url, options = {}) {
     // 1-1. 기본 헤더 설정 (CSRF 방지 및 API 요청 식별을 위해 XMLHttpRequest 설정)
     const defaultHeaders = {
         "X-Requested-With": "XMLHttpRequest",
+        ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
         ...options.headers,
     };
 
-    // 1-2. Fetch API 실행
-    const response = await fetch(url, {
+    const fetchOptions = {
+        credentials: "include", 
         ...options,
         headers: defaultHeaders,
-    });
+    };
 
-    // 1-3. 응답 처리 핸들러로 전달
-    return handleResponse(response);
+    try {
+        const response = await fetch(url, fetchOptions);
+        return await handleResponse(response);
+    } catch (error) {
+        throw error;
+    }
 }
 
 /**
