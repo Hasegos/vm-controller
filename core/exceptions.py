@@ -34,7 +34,6 @@ def install_errors(app):
             # HTML 페이지 요청인 경우 로그인 페이지로 리다이렉트
             if "text/html" in request.headers.get("accept", ""):
                 response = RedirectResponse(url="/login")
-                response.delete_cookie("access_token", path="/")
                 return response
         
             # API 요청인 경우 JSON 에러 메시지 반환
@@ -46,7 +45,6 @@ def install_errors(app):
         # [Case] 404 Not Found: 페이지를 찾을 수 없을 시
         if exc.status_code == status.HTTP_404_NOT_FOUND:
             response = RedirectResponse(url="/")
-            response.delete_cookie("access_token", path="/")
             return response
         
         # 그 외 기타 HTTP 예외 처리
