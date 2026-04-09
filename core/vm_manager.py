@@ -12,7 +12,7 @@ class VMwareController:
 
     def __init__(self, vmx_path):
         # ────────────────────────────────
-        # VMX 파일 존재 확인 및 경로 초기화.
+        # 1.VMX 파일 존재 확인 및 경로 초기화.
         # ────────────────────────────────
         if not os.path.exists(vmx_path):
             raise FileNotFoundError(f"VMX 파일을 찾을 수 없습니다: {vmx_path}")
@@ -21,7 +21,7 @@ class VMwareController:
     
     def _run_vmrun(self, args):
         # ────────────────────────────────────
-        # vmrun 명령어 실행을 위한 내부 유틸리티.
+        # 2.vmrun 명령어 실행을 위한 내부 유틸리티.
         # ────────────────────────────────────
         
         main_cmd = args[0]
@@ -48,7 +48,7 @@ class VMwareController:
 
     def _run_ssh(self, ip, username, password, command, timeout=30):
         # ────────────────────────────
-        # SSH를 통한 원격 명령어 실행.
+        # 3.SSH를 통한 원격 명령어 실행.
         # ────────────────────────────
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -76,7 +76,7 @@ class VMwareController:
 
     def _wait_ssh(self, ip, username, password, timeout=120):
         # ────────────────────────────────────
-        # 부팅 완료 확인을 위한 SSH 접속 대기.
+        # 4.부팅 완료 확인을 위한 SSH 접속 대기.
         # ────────────────────────────────────
         print(f"SSH 접속 대기 중... ({ip})")
         start = time.time()
@@ -94,9 +94,9 @@ class VMwareController:
         print(f"SSH 접속 타임아웃: {ip}")
         return False
 
-    def _inject_vmx_settings(self, vmx_path):\
+    def _inject_vmx_settings(self, vmx_path):
         # ──────────────────────────────────────
-        # VMX 파일에 UUID 및 MAC 생성 설정 주입.
+        # 5.VMX 파일에 UUID 및 MAC 생성 설정 주입.
         # ──────────────────────────────────────
         with open(vmx_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -126,21 +126,28 @@ class VMwareController:
 
     def start(self):
         # ────────────────────────
-        # VM 시작.
+        # 6.VM 시작.
         # ────────────────────────
         print(f"Starting VM: {os.path.basename(self.vmx_path)}")
         return self._run_vmrun(["start", "nogui"])
 
     def stop(self, mode="soft"):
         # ────────────────────────
-        # VM 종료.
+        # 7.VM 종료.
         # ────────────────────────
         print(f"Stopping VM: {os.path.basename(self.vmx_path)}")
         return self._run_vmrun(["stop", mode])
 
+    def reset(self, mode="soft"):
+        # ─────────────────────
+        # 8. VM 재시작 (Reset)
+        # ─────────────────────
+        print(f"Resetting VM ({mode}): {os.path.basename(self.vmx_path)}")
+        return self._run_vmrun(["reset", mode])
+
     def get_ip(self, timeout=120, check_ip=None):
         # ────────────────────────
-        # 게스트 OS IP 획득.
+        # 9.게스트 OS IP 획득.
         # ────────────────────────
         start_time = time.time()
         print("VMware Tools IP 대기 중...")
@@ -158,7 +165,7 @@ class VMwareController:
 
     def clone(self, new_vmx_path):
         # ──────────────────────────────
-        # VM 전체 복제 및 설정 주입.
+        # 10.VM 전체 복제 및 설정 주입.
         # ──────────────────────────────
         import shutil
         new_dir = os.path.dirname(new_vmx_path)
@@ -178,7 +185,7 @@ class VMwareController:
 
     def get_next_ip(self, clone_root_dir, base_ip):
         # ───────────────────────────────────────────
-        # 기존 폴더 확인 후 다음 사용 가능한 IP 계산.
+        # 11.기존 폴더 확인 후 다음 사용 가능한 IP 계산.
         # ───────────────────────────────────────────
         folders = glob.glob(os.path.join(clone_root_dir, "Clone_*"))
         if not folders:
@@ -196,16 +203,13 @@ class VMwareController:
         return ".".join(parts)
 
     def _increment_ip(self, base_ip):
-        # ───────────────────────────────────────────
-        # IP의 마지막 옥텟을 1 증가시킴 (내부 메서드).
-        # ───────────────────────────────────────────
         parts = base_ip.split(".")
         parts[-1] = str(int(parts[-1]) + 1)
         return ".".join(parts)
 
     def set_static_ip(self, current_ip, guest_user, guest_pw, new_ip,gate_ip, subnet_mask, interface):
         # ─────────────────────────────────────────────────
-        # Linux NetworkManager 설정을 통한 고정 IP 주입.
+        # 12.Linux NetworkManager 설정을 통한 고정 IP 주입.
         # ─────────────────────────────────────────────────
         if not self._wait_ssh(current_ip, guest_user, guest_pw):
             print("❌ SSH 접속 실패 - IP 변경 불가")
@@ -228,7 +232,7 @@ class VMwareController:
 
     def regenerate_ssh_hostkey(self, ip, guest_user, guest_pw):
         # ───────────────────────────────
-        # SSH 호스트 키 재생성.
+        # 13.SSH 호스트 키 재생성.
         # ───────────────────────────────
         cmd = (
             "rm -f /etc/ssh/ssh_host_* && "
@@ -240,7 +244,7 @@ class VMwareController:
     
     def _check_port_open(self, ip, port):
         # ───────────────────────────────
-        # 특정 포트 통신 가능 여부 확인.
+        # 14.특정 포트 통신 가능 여부 확인.
         # ───────────────────────────────
         import socket
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -249,3 +253,11 @@ class VMwareController:
         sock.close()
         return result == 0
     
+    def is_running(self):
+        # ─────────────────────────
+        # 15. 현재 실행 여부 조회
+        # ─────────────────────────
+        result = self._run_vmrun(["list"])
+        if result:
+            return os.path.normpath(self.vmx_path) in os.path.normpath(result)
+        return False
