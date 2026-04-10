@@ -74,16 +74,83 @@ async function controlVM(vmId, action) {
 }
 
 /**
+ * ─────────────────────────────────────────────────────────────
+ * 3. VM 삭제 함수
+ * ─────────────────────────────────────────────────────────────
+ */
+async function deleteVM(vmId, vmName) {
+    // ─── 1. 이중 확인 (되돌릴 수 없는 작업) ───
+    if (!confirm(`"${vmName}" 서버를 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없으며, 모든 데이터가 영구적으로 삭제됩니다.`)) {
+        return;
+    }
+    const vmItem = document.querySelector(`.vm-item[data-id="${vmId}"]`);
+    const statusBadge = vmItem.querySelector('.status-badge');
+    const buttons = vmItem.querySelectorAll('button');
+
+    // ─── 2. UI 즉시 잠금 (삭제 중 상태 표시) ───
+    sessionStorage.setItem(`pending_lock_${vmId}`, 'true');
+    buttons.forEach(btn => btn.disabled = true);
+    statusBadge.textContent = "삭제 중...";
+    statusBadge.className = "status-badge bg-danger";
+
+    try {
+        // ─── 3. 삭제 API 호출 (DELETE 메서드) ───
+        await apiRequest(`/vm/${vmId}`, { method: 'DELETE' });
+
+        // ─── 4. 삭제 완료 후 DOM에서 해당 행 제거 ───
+        waitAndRemoveRow(vmId);
+
+    } catch (e) {
+        alert("삭제 실패: " + e.message);
+        // ─── 5. 실패 시 잠금 해제 및 상태 복구 ───
+        sessionStorage.removeItem(`pending_lock_${vmId}`);
+        syncStatus();
+    }
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────
+ * 4. 삭제 완료 감지 후 DOM row 제거 (Polling 연동)
+ *    status-list API에서 해당 vmId가 사라지면 row를 DOM에서 삭제
+ * ─────────────────────────────────────────────────────────────
+ */
+function waitAndRemoveRow(vmId) {
+    const intervalId = setInterval(async () => {
+        try {
+            const data = await apiRequest('/vms/status-list');
+            if (!data || !Array.isArray(data)) return;
+
+            // ─── 응답 목록에 해당 VM이 없으면 삭제 완료 ───
+            const stillExists = data.some(vm => vm.id === vmId);
+            if (!stillExists) {
+                clearInterval(intervalId);
+                sessionStorage.removeItem(`pending_lock_${vmId}`);
+
+                const row = document.querySelector(`.vm-item[data-id="${vmId}"]`);
+                if (row) {
+                    // 페이드 아웃 후 DOM 제거
+                    row.style.transition = "opacity 0.4s ease";
+                    row.style.opacity = "0";
+                    setTimeout(() => row.remove(), 400);
+                }
+            }
+        } catch (e) {
+            clearInterval(intervalId);
+        }
+    }, 2000);
+}
+
+/**
  * ────────────────────────────────────
- * 3. 서버 상태 실시간 동기화 (Polling)
+ * 5. 서버 상태 실시간 동기화 (Polling)
  * ────────────────────────────────────
  */
 async function syncStatus() {
     try {
         // ─── 1. 최신 상태 목록 조회 ───
         const data = await apiRequest('/vms/status-list');
-        if (!data || !Array.isArray(data)) return;
 
+        if (!data || !Array.isArray(data)) return;
         data.forEach(vm => {
             const row = document.querySelector(`.vm-item[data-id="${vm.id}"]`);
             if (!row) return;
@@ -92,34 +159,34 @@ async function syncStatus() {
             const btns = row.querySelectorAll('.control-btn');
 
             // ─── 2. 잠금 조건 계산 ───
-            // [A] DB 기반 상태 체크 (작업 중 여부)
-            const isDbBusy = ['starting', 'stopping', 'rebooting', 'creating', 'processing'].includes(vm.status);
-            
-            // [B] 로컬 스토리지 기반 잠금 체크 (API 응답 전 찰나의 시간 대비)
+            // [A] DB 기반 상태 체크
+            const isDbBusy = ['starting', 'stopping', 'rebooting', 'creating', 'processing', 'deleting'].includes(vm.status);
+
+            // [B] 로컬 스토리지 기반 잠금 체크
             const isLocalLocked = sessionStorage.getItem(`pending_lock_${vm.id}`) === 'true';
 
-            // [C] 잠금 해제: DB 상태가 '작업 중'으로 전환되었다면 로컬 잠금 해제
+            // [C] DB가 'busy' 상태로 전환되면 로컬 잠금 해제
             if (isDbBusy && isLocalLocked) {
                 sessionStorage.removeItem(`pending_lock_${vm.id}`);
             }
 
             // [D] 최종 UI 잠금 여부 결정
             const finalLock = isDbBusy || isLocalLocked;
-            
+
             // ─── 3. UI 업데이트 ───
             updateBadgeUI(badge, vm.status);
             btns.forEach(btn => {
                 btn.disabled = finalLock;
             });
         });
-    } catch (e) { 
-        showError(e)
+    } catch (e) {
+        showError(e);
     }
 }
 
 /**
  * ───────────────────────────────
- * 4. 상태 배지 UI 렌더링 유틸리티
+ * 6. 상태 배지 UI 렌더링 유틸리티
  * ───────────────────────────────
  */
 function updateBadgeUI(badge, status) {
@@ -142,7 +209,7 @@ function updateBadgeUI(badge, status) {
 
 /**
  * ─────────────────────────────────────
- * 5. 주기적 실행 설정 (3초 간격 Polling)
+ * 7. 주기적 실행 설정 (3초 간격 Polling)
  * ─────────────────────────────────────
  */
 document.addEventListener('DOMContentLoaded', syncStatus);
