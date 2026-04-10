@@ -43,3 +43,34 @@ def update_vm_status(db: Session, vm_id: int, status: str):
         db.refresh(db_vm)
         
     return db_vm
+
+# ──────────────────────────────
+# 3. VM 삭제 (DB 레코드 제거)
+# ──────────────────────────────
+def delete_vm(db: Session, vm_id: int):
+    """
+    DB에서 VM 레코드를 영구 삭제합니다.
+    실제 VMX 파일/폴더 삭제는 vm_service에서 처리하고,
+    이 함수는 DB 정리만 담당합니다.
+    """
+
+    # ─── 1. 대상 VM 조회 ───
+    db_vm = db.query(VM).filter(VM.id == vm_id).first()
+
+    # ─── 2. 존재하면 삭제 ───
+    if db_vm:
+        db.delete(db_vm)
+        db.commit()
+        return True
+    
+    return False
+
+# ─────────────────────────────────────────────────────────────
+# 4. IP 주소로 VM 조회 (IP 중복/회수 체크용)
+# ─────────────────────────────────────────────────────────────
+def get_vm_by_ip(db: Session, ip: str):
+    """
+    특정 IP를 가진 VM을 조회합니다.
+    IP 할당 전 중복 확인에 사용합니다.
+    """
+    return db.query(VM).filter(VM.ip_address == ip).first()
