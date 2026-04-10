@@ -38,7 +38,13 @@ async function handleResponse(response) {
         return text ? JSON.parse(text) : null;
     }
 
-    // 2-2. 에러 데이터 추출 시도
+    // 2-2. 특정 상태 코드(401)에 대한 자동 리다이렉트
+    if (response.status === 401) {
+        window.location.href = "/login";
+        return null;
+    }
+
+    // 2-3. 에러 데이터 추출 시도
     let errorData;
     try {
         errorData = await response.json();
@@ -47,12 +53,6 @@ async function handleResponse(response) {
     }
 
     const errorMessage = errorData.detail || "오류가 발생했습니다.";
-
-    // 2-3. 특정 상태 코드(404)에 대한 자동 리다이렉트
-    if (response.status === 404) {
-        window.location.href = "/";
-        return null;
-    }
 
     // 2-4. 에러 발생 시 예외 던지기
     throw new Error(errorMessage);
