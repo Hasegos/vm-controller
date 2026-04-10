@@ -6,7 +6,7 @@ from core.templates import templates
 from schemas.vm_schema import VMCreate
 from models.vm_model import VM
 from models.user_model import User
-from worker import create_vm_task_async, control_vm_task_async
+from worker import create_vm_task_async, control_vm_task_async, delete_vm_task_async
 from crud import vm_crud
 
 router = APIRouter()
@@ -14,6 +14,7 @@ router = APIRouter()
 # ────────────────────────────
 # 1. 대시보드 페이지 렌더링
 # ────────────────────────────
+@router.get("/dashboard")
 async def dashboard_page(
   request: Request,
   db: Session = Depends(get_db),
@@ -100,8 +101,54 @@ async def vm_control(
 
   return {"status": "success", "message": "명령이 대기열에 등록되었습니다."}
 
+
+# ──────────────────────────────────────────────────────────
+# 4. VM 삭제 요청 (강제 종료 → 폴더 삭제 → IP 회수 비동기)
+# ──────────────────────────────────────────────────────────
+@router.delete("/vm/{vm_id}")
+async def delete_vm(
+  vm_id: int,
+  db: Session = Depends(get_db),
+  username: str = Depends(get_current_user)
+):
+  # ─── 1. 사용자 세션 검증 ───
+  user = db.query(User).filter(User.username == username).first()
+
+  if not user:
+    raise HTTPException(
+      status_code=404,
+      detail="인증되지 않은 사용자이거나 세션이 만료되었습니다."
+    )
+
+  # ─── 2. VM 소유권 확인 ───
+  vm = db.query(VM).filter(VM.id == vm_id, VM.owner_id == user.id).first()
+
+  if not vm:
+    raise HTTPException(
+      status_code=403,
+      detail="권한이 없거나 존재하지 않는 VM입니다."
+    )
+
+  # ─── 3. 이미 삭제 진행 중인지 체크 ───
+  busy_states = ["processing", "starting", "stopping", "rebooting", "creating", "deleting"]
+  if vm.status in busy_states:
+    raise HTTPException(
+      status_code=400,
+      detail="작업이 진행 중입니다. 완료 후 삭제해주세요."
+    )
+
+  # ─── 4. 비동기 삭제 태스크 등록 ───
+  vm_crud.update_vm_status(db, vm_id, "deleting")
+  task = delete_vm_task_async.delay(vm_id)
+
+  return {
+    "status": "success",
+    "message": "VM 삭제가 시작되었습니다.",
+    "task_id": task.id
+  }
+
 # ────────────────────────────────────────────
-# 4. 실시간 VM 상태 목록 조회 (Polling용 API)
+# 5. 실시간 VM 상태 목록 조회 (Polling용 API)
 # ────────────────────────────────────────────
 @router.get("/vms/status-list")
 async def get_vms_status(
