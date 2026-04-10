@@ -183,33 +183,9 @@ class VMwareController:
             time.sleep(2)
         return result
 
-    def get_next_ip(self, clone_root_dir, base_ip):
-        # ───────────────────────────────────────────
-        # 11.기존 폴더 확인 후 다음 사용 가능한 IP 계산.
-        # ───────────────────────────────────────────
-        folders = glob.glob(os.path.join(clone_root_dir, "Clone_*"))
-        if not folders:
-            return self._increment_ip(base_ip)
-        existing_nums = []
-        for f in folders:
-            try:
-                num = int(os.path.basename(f).split("_")[-1])
-                existing_nums.append(num)
-            except:
-                continue
-        next_num = max(existing_nums) + 1 if existing_nums else 122
-        parts = base_ip.split(".")
-        parts[-1] = str(next_num)
-        return ".".join(parts)
-
-    def _increment_ip(self, base_ip):
-        parts = base_ip.split(".")
-        parts[-1] = str(int(parts[-1]) + 1)
-        return ".".join(parts)
-
     def set_static_ip(self, current_ip, guest_user, guest_pw, new_ip,gate_ip, subnet_mask, interface):
         # ─────────────────────────────────────────────────
-        # 12.Linux NetworkManager 설정을 통한 고정 IP 주입.
+        # 11.Linux NetworkManager 설정을 통한 고정 IP 주입.
         # ─────────────────────────────────────────────────
         if not self._wait_ssh(current_ip, guest_user, guest_pw):
             print("❌ SSH 접속 실패 - IP 변경 불가")
@@ -232,7 +208,7 @@ class VMwareController:
 
     def regenerate_ssh_hostkey(self, ip, guest_user, guest_pw):
         # ───────────────────────────────
-        # 13.SSH 호스트 키 재생성.
+        # 12.SSH 호스트 키 재생성.
         # ───────────────────────────────
         cmd = (
             "rm -f /etc/ssh/ssh_host_* && "
@@ -244,7 +220,7 @@ class VMwareController:
     
     def _check_port_open(self, ip, port):
         # ───────────────────────────────
-        # 14.특정 포트 통신 가능 여부 확인.
+        # 13.특정 포트 통신 가능 여부 확인.
         # ───────────────────────────────
         import socket
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -255,7 +231,7 @@ class VMwareController:
     
     def is_running(self):
         # ─────────────────────────
-        # 15. 현재 실행 여부 조회
+        # 14. 현재 실행 여부 조회
         # ─────────────────────────
         result = self._run_vmrun(["list"])
         if result:
