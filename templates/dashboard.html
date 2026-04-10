@@ -34,13 +34,14 @@
                 <div class="vm-info">
                     <strong>{{ vm.os_type }}</strong> 
                     <span class="vm-ip">({{ vm.ip_address }})</span>
-                    <span class="status-badge {{ vm.status }}">{{ vm.status.upper() }}</span>
+                    <span class="status-badge">{{ vm.status.upper() }}</span>
                 </div>
                 <div class="vm-actions">
                     <button type="button" onclick="controlVM('{{ vm.id }}', 'start')" class="btn-sm">시작</button>
                     <button type="button" onclick="controlVM('{{ vm.id }}', 'reboot_soft')" class="btn-sm">재부팅</button>
                     <button type="button" onclick="controlVM('{{ vm.id }}', 'stop_soft')" class="btn-sm">종료</button>
                     <button type="button" onclick="controlVM('{{ vm.id }}', 'stop_hard')" class="btn-sm danger">강제종료</button>
+                    <button type="button" onclick="deleteVM('{{ vm.id }}', '{{ vm.vm_name }}')" class="btn-sm danger control-btn">삭제</button>
                 </div>
             </div>
             {% endfor %}
