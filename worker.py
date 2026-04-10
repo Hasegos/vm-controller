@@ -2,7 +2,7 @@ import asyncio
 from celery import Celery
 from db.session import SessionLocal
 from crud import user_crud
-from services.vm_service import create_new_vm_task, control_vm_power
+from services.vm_service import create_new_vm_task, control_vm_power, delete_vm_task
 
 # ───────────────────────────────────────────
 # 1. Celery 앱 초기화 (Redis Broker/Backend)
@@ -50,6 +50,25 @@ def control_vm_task_async(vm_id: int, action: str):
     try:
         # ─── 1. 전원 제어 비동기 함수 실행 ───
         result = asyncio.run(control_vm_power(db, vm_id, action))
+        return result
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+    finally:
+        db.close()
+
+
+# ──────────────────────────
+# 4. 비동기 VM 삭제 태스크
+# ──────────────────────────
+@celery_app.task(name="delete_vm_task_async")
+def delete_vm_task_async(vm_id: int):
+    """
+    백그라운드에서 VM을 완전히 삭제합니다.
+    (강제 종료 → VMX 폴더 제거 → DB 레코드 삭제 → IP 회수)
+    """
+    db = SessionLocal()
+    try:
+        result = asyncio.run(delete_vm_task(db, vm_id))
         return result
     except Exception as e:
         return {"status": "error", "detail": str(e)}
