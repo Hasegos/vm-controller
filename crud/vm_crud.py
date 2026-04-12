@@ -74,3 +74,54 @@ def get_vm_by_ip(db: Session, ip: str):
     IP 할당 전 중복 확인에 사용합니다.
     """
     return db.query(VM).filter(VM.ip_address == ip).first()
+
+# ──────────────────────────────────────────────────────────────
+# 5. SSH 공개키 저장
+# ──────────────────────────────────────────────────────────────
+def update_vm_ssh_public_key(db: Session, vm_id: int, public_key: str):
+    """
+    VM의 SSH 공개키를 DB에 저장합니다.
+    """
+    db_vm = db.query(VM).filter(VM.id == vm_id).first()
+    if db_vm:
+        db_vm.ssh_public_key = public_key
+        db.commit()
+        db.refresh(db_vm)
+    return db_vm
+
+# ───────────────────
+# 6. SSH 개인키 저장
+# ───────────────────
+def update_vm_ssh_private_key(db: Session, vm_id: int, encrypted_private_key: str):
+    """
+    VM의 SSH 개인키를 DB에 저장합니다.
+    """
+    db_vm = db.query(VM).filter(VM.id == vm_id).first()
+    if db_vm:
+        db_vm.ssh_private_key = encrypted_private_key
+        db.commit()
+        db.refresh(db_vm)
+    return db_vm
+
+# ──────────────────────────────────────────────────────────────
+# 7. SSH 호스트 키 fingerprint 저장
+# ──────────────────────────────────────────────────────────────
+def update_vm_host_fingerprint(db: Session, vm_id: int, fingerprint: str):
+    """
+    VM의 SSH 호스트 키 fingerprint를 DB에 저장합니다.
+    """
+    db_vm = db.query(VM).filter(VM.id == vm_id).first()
+    if db_vm:
+        db_vm.ssh_host_fingerprint = fingerprint
+        db.commit()
+        db.refresh(db_vm)
+    return db_vm
+
+# ──────────────────────────────────────────────────
+# 8. 사용자 소유 VM 수 조회
+# ──────────────────────────────────────────────────
+def count_vms_by_owner(db: Session, owner_id: int) -> int:
+    """
+    특정 사용자가 소유한 VM 수를 반환합니다.
+    """
+    return db.query(VM).filter(VM.owner_id == owner_id).count()
