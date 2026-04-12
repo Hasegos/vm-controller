@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, Request, HTTPException
 from sqlalchemy.orm import Session
 from db.session import get_db
+
 from core.auth import get_current_user
 from core.templates import templates
+from core.config import settings
 from schemas.vm_schema import VMCreate
 from models.vm_model import VM
 from models.user_model import User
@@ -10,6 +12,7 @@ from worker import create_vm_task_async, control_vm_task_async, delete_vm_task_a
 from crud import vm_crud
 
 router = APIRouter()
+ALLOWED_ACTIONS = {"start", "stop_soft", "stop_hard", "reboot_soft", "reboot_hard"}
 
 # ────────────────────────────
 # 1. 대시보드 페이지 렌더링
@@ -38,7 +41,8 @@ async def dashboard_page(
     context={
       "request": request, 
       "username": user.username,
-      "vms" : vms
+      "vms" : vms,
+      "max" : settings.MAX_VM_PER_USER
       }
   )
 
@@ -48,10 +52,24 @@ async def dashboard_page(
 @router.post("/create-vm")
 async def create_vm(
   payload: VMCreate,
+  db: Session = Depends(get_db),
   current_user: str = Depends(get_current_user)
 ):
-  # ─── Celery 비동기 작업 호출 ───
-  task = create_vm_task_async.delay(current_user, payload.os_type)
+  # ─── 1. 사용자 확인 ───
+  user = db.query(User).filter(User.username == current_user).first()
+  if not user:
+      raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+
+  # ─── 2. 사용자당 VM 개수 제한 체크 ───
+  vm_count = vm_crud.count_vms_by_owner(db, owner_id=user.id)
+  if vm_count >= settings.MAX_VM_PER_USER:
+      raise HTTPException(
+          status_code=429,
+          detail=f"VM은 최대 {settings.MAX_VM_PER_USER}개까지 생성할 수 있습니다."
+      )
+
+  # ─── 3. Celery 비동기 작업 호출 ───
+  task = create_vm_task_async.delay(user.id, payload.os_type)
 
   return {
     "status": "success",
@@ -69,7 +87,12 @@ async def vm_control(
   db: Session = Depends(get_db),
   username: str = Depends(get_current_user)
 ):
-  # ─── 1. 권한 및 세션 검증 ───
+
+  # ─── 1. action 화이트리스트 검증 ───
+  if action not in settings.ALLOWED_ACTIONS:
+      raise HTTPException(status_code=400, detail="허용되지 않은 명령입니다.")
+
+  # ─── 2. 권한 및 세션 검증 ───
   user = db.query(User).filter(User.username == username).first()
 
   if not user:
@@ -78,7 +101,7 @@ async def vm_control(
       detail="인증되지 않은 사용자이거나 세션이 만료되었습니다."
     )
 
-  # ─── 2. VM 소유권 확인 ───
+  # ─── 3. VM 소유권 확인 ───
   vm = db.query(VM).filter(VM.id == vm_id, VM.owner_id == user.id).first()
 
   if not vm:
@@ -87,7 +110,7 @@ async def vm_control(
       detail="권한이 없습니다."
     )
   
-  # ─── 3. 중복 작업 방지 (상태 체크) ───
+  # ─── 4. 중복 작업 방지 (상태 체크) ───
   busy_states = ["processing", "starting", "stopping", "rebooting", "creating"]
   if vm.status in busy_states:
     raise HTTPException(
@@ -95,12 +118,11 @@ async def vm_control(
       detail="작업이 진행 중입니다. 잠시만 기다려주세요."
     )
 
-  # ─── 4. 상태 업데이트 및 비동기 명령 전송 ───
+  # ─── 5. 상태 업데이트 및 비동기 명령 전송 ───
   vm_crud.update_vm_status(db, vm_id, "processing")
-  control_vm_task_async.delay(vm_id, action)
+  control_vm_task_async.delay(vm_id, action, user.id)
 
   return {"status": "success", "message": "명령이 대기열에 등록되었습니다."}
-
 
 # ──────────────────────────────────────────────────────────
 # 4. VM 삭제 요청 (강제 종료 → 폴더 삭제 → IP 회수 비동기)
@@ -139,7 +161,7 @@ async def delete_vm(
 
   # ─── 4. 비동기 삭제 태스크 등록 ───
   vm_crud.update_vm_status(db, vm_id, "deleting")
-  task = delete_vm_task_async.delay(vm_id)
+  task = delete_vm_task_async.delay(vm_id, user.id)
 
   return {
     "status": "success",
