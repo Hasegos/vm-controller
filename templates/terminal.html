@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ vm_name }} | CloudForge Terminal</title>
+    <link rel="stylesheet" href="/static//css/common.css">
+    <link rel="stylesheet" href="/static/css/terminal.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+</head>
+<body>
+
+    <!-- 상단 상태바 -->
+    <div class="terminal-topbar">
+        <div class="topbar-left">
+            <span class="topbar-icon">⬡</span>
+            <span class="topbar-title">CloudForge</span>
+            <span class="topbar-divider">|</span>
+            <span class="topbar-vmname">{{ vm_name }}</span>
+            <span class="topbar-ip">{{ ip_address }}</span>
+        </div>
+        <div class="topbar-right">
+            <span id="connectionStatus" class="status-dot connecting"></span>
+            <span id="connectionLabel" class="status-label">연결 중...</span>
+        </div>
+    </div>
+
+    <!-- 터미널 컨테이너 (풀스크린) -->
+    <div id="terminal-container"></div>
+
+    <div id="disconnected-screen" class="disconnected-screen hidden">
+        <div class="disconnected-icon">⬡</div>
+        <div class="disconnected-title">서버가 종료되었습니다.</div>
+        <div class="disconnected-sub">이 탭을 닫아주세요.</div>
+        <button id="btnCloseTab" onclick="window.close()">탭 닫기</button>
+    </div>
+
+    <!-- xterm.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+
+    <script>
+        const VM_ID = parseInt("{{ vm_id }}");
+    </script>
+    <script src="/static/js/apiClient.js"></script>
+    <script src="/static/js/terminal.js"></script>
+</body>
+</html>

@@ -1,9 +1,13 @@
 import subprocess
 import time
+import socket
+import shutil
 import os
 import re
-import glob
+import math
 import paramiko
+from io import StringIO
+from core.config import settings
 
 class VMwareController:
     # ──────────────────────────────────────────────────────────────────────
@@ -12,7 +16,7 @@ class VMwareController:
 
     def __init__(self, vmx_path):
         # ────────────────────────────────
-        # VMX 파일 존재 확인 및 경로 초기화.
+        # 1.VMX 파일 존재 확인 및 경로 초기화.
         # ────────────────────────────────
         if not os.path.exists(vmx_path):
             raise FileNotFoundError(f"VMX 파일을 찾을 수 없습니다: {vmx_path}")
@@ -21,7 +25,7 @@ class VMwareController:
     
     def _run_vmrun(self, args):
         # ────────────────────────────────────
-        # vmrun 명령어 실행을 위한 내부 유틸리티.
+        # 2.vmrun 명령어 실행을 위한 내부 유틸리티.
         # ────────────────────────────────────
         
         main_cmd = args[0]
@@ -45,15 +49,16 @@ class VMwareController:
             if err_msg:
                 print(f"[vmrun Error] {main_cmd}: {err_msg}")
             return None
-
-    def _run_ssh(self, ip, username, password, command, timeout=30):
+        
+    def _run_ssh(self, ip, username, command, password=None, pkey_str=None, timeout=30):
         # ────────────────────────────
-        # SSH를 통한 원격 명령어 실행.
+        # 3.SSH를 통한 원격 명령어 실행.
         # ────────────────────────────
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
         try:
-            client.connect(
+            connect_kwargs = dict(
                 hostname=ip,
                 username=username,
                 password=password,
@@ -62,6 +67,16 @@ class VMwareController:
                 allow_agent=False,
                 look_for_keys=False
             )
+
+            if pkey_str:
+                # ─── PEM 키 문자열을 paramiko RSAKey 객체로 변환 ───
+                pkey = paramiko.RSAKey.from_private_key(StringIO(pkey_str))
+                connect_kwargs["pkey"] = pkey
+            else:
+                # ─── 패스워드 방식 (최초 공개키 주입 시에만 사용) ───
+                connect_kwargs["password"] = password
+
+            client.connect(**connect_kwargs)
             stdin, stdout, stderr = client.exec_command(command, timeout=timeout)
             out = stdout.read().decode("utf-8", errors="ignore").strip()
             err = stderr.read().decode("utf-8", errors="ignore").strip()
@@ -74,9 +89,10 @@ class VMwareController:
         finally:
             client.close()
 
-    def _wait_ssh(self, ip, username, password, timeout=120):
+    def _wait_ssh(self, ip, username, password=None, pkey_str=None, timeout=120):
         # ────────────────────────────────────
-        # 부팅 완료 확인을 위한 SSH 접속 대기.
+        # 4. 부팅 완료 확인을 위한 SSH 접속 대기.
+        #    pkey_str 우선, 없으면 password fallback
         # ────────────────────────────────────
         print(f"SSH 접속 대기 중... ({ip})")
         start = time.time()
@@ -84,63 +100,151 @@ class VMwareController:
             try:
                 client = paramiko.SSHClient()
                 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                client.connect(ip, username=username, password=password,
-                                timeout=5, allow_agent=False, look_for_keys=False)
+
+                connect_kwargs = dict(
+                    hostname=ip,
+                    username=username,
+                    timeout=5,
+                    allow_agent=False,
+                    look_for_keys=False
+                )
+                if pkey_str:
+                    pkey = paramiko.RSAKey.from_private_key(StringIO(pkey_str))
+                    connect_kwargs["pkey"] = pkey
+                else:
+                    connect_kwargs["password"] = password
+
+                client.connect(**connect_kwargs)
                 client.close()
+
                 print(f"SSH 접속 성공: {ip}")
                 return True
+            
             except Exception:
                 time.sleep(5)
+
         print(f"SSH 접속 타임아웃: {ip}")
         return False
+    
+    # ──────────────────────────────────────────────────────────────────────
+    # 5. 게스트 OS 원본 VMX에서 리소스 스펙 파싱
+    # BASE_VMX 기준으로 numvcpus, memsize를 읽어 70% 상한값을 계산합니다.
+    # ──────────────────────────────────────────────────────────────────────
+    def _parse_base_resources(self):
+        """
+        BASE_VMX 파일에서 numvcpus, memsize를 파싱하여 반환합니다.
+        파싱 실패 시 안전한 기본값(cpu=1, mem=1024)을 반환합니다.
+        """
+        base_vmx = settings.BASE_VMX
+        cpu  = 1
+        mem  = 1024  # MB
 
-    def _inject_vmx_settings(self, vmx_path):\
+        try:
+            with open(base_vmx, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+
+                    if line.lower().startswith("numvcpus"):
+                        match = re.search(r'=\s*"?(\d+)"?', line)
+
+                        if match:
+                            cpu = int(match.group(1))
+
+                    elif line.lower().startswith("memsize"):
+                        match = re.search(r'=\s*"?(\d+)"?', line)
+
+                        if match:
+                            mem = int(match.group(1))
+        except Exception as e:
+            print(f"[WARN] BASE VMX 리소스 파싱 실패, 기본값 사용: {e}")
+
+        ratio = settings.RESOURCE_LIMIT_RATIO
+
+        # ─── 최솟값 1 보장 (floor(1 × 0.7) = 0 방지) ───
+        limited_cpu = max(1, math.floor(cpu * ratio))
+
+        # ─── VMware는 memsize를 반드시 4의 배수로 요구 ───
+        raw_mem     = math.floor(mem * ratio)
+        limited_mem = max(512, (raw_mem // 4) * 4)
+
+        print(f"[리소스 상한] 원본 CPU:{cpu} → {limited_cpu} | 원본 MEM:{mem}MB → {limited_mem}MB (비율: {ratio})")
+        return limited_cpu, limited_mem
+
+    def _inject_vmx_settings(self, vmx_path):
         # ──────────────────────────────────────
-        # VMX 파일에 UUID 및 MAC 생성 설정 주입.
+        # 5.VMX 파일에 UUID 및 MAC 생성 설정 주입.
         # ──────────────────────────────────────
         with open(vmx_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        content = re.sub(r'^uuid\.bios\s*=.*\n', '', content, flags=re.MULTILINE)
-        content = re.sub(r'^uuid\.location\s*=.*\n', '', content, flags=re.MULTILINE)
-
-        content = re.sub(r'^ethernet0\.generatedAddress\s*=.*\n', '', content, flags=re.MULTILINE)
+        # ─── UUID/MAC 관련 기존 설정 제거 ───
+        content = re.sub(r'^uuid\.bios\s*=.*\n',                    '', content, flags=re.MULTILINE)
+        content = re.sub(r'^uuid\.location\s*=.*\n',                '', content, flags=re.MULTILINE)
+        content = re.sub(r'^ethernet0\.generatedAddress\s*=.*\n',   '', content, flags=re.MULTILINE)
         content = re.sub(r'^ethernet0\.generatedAddressOffset\s*=.*\n', '', content, flags=re.MULTILINE)
-        content = re.sub(r'^ethernet0\.addressType\s*=.*\n', '', content, flags=re.MULTILINE)
+        content = re.sub(r'^ethernet0\.addressType\s*=.*\n',        '', content, flags=re.MULTILINE)
         content += '\nethernet0.addressType = "generated"'
 
-        settings = {
+        # ─── 기본 동작 설정 주입 ───
+        vm_settings = {
             'uuid.action': 'create',
             'msg.autoAnswer': 'TRUE'
         }
-        for key, value in settings.items():
+
+        for key, value in vm_settings.items():
             if f'{key} = ' not in content:
                 content += f'\n{key} = "{value}"'
                 print(f"VMX 설정 주입: {key} = {value}")
             else:
                 print(f"VMX 설정 이미 존재: {key}")
 
+
+        # ─── 리소스 상한 주입 (게스트 OS 원본의 70%) ───
+        limited_cpu, limited_mem = self._parse_base_resources()
+
+        # ─── numvcpus 교체 또는 추가 ───
+        if re.search(r'^numvcpus\s*=', content, flags=re.MULTILINE):
+            content = re.sub(r'^numvcpus\s*=.*', f'numvcpus = "{limited_cpu}"', content, flags=re.MULTILINE)
+        else:
+            content += f'\nnumvcpus = "{limited_cpu}"'
+
+        # ─── memsize 교체 또는 추가 ───
+        if re.search(r'^memsize\s*=', content, flags=re.MULTILINE):
+            content = re.sub(r'^memsize\s*=.*', f'memsize = "{limited_mem}"', content, flags=re.MULTILINE)
+        else:
+            content += f'\nmemsize = "{limited_mem}"'
+
+        print(f"VMX 리소스 상한 주입 완료: CPU={limited_cpu}, MEM={limited_mem}MB")
+
         with open(vmx_path, "w", encoding="utf-8") as f:
             f.write(content)
+
         print(f"VMX 설정 주입 완료: {os.path.basename(vmx_path)}")
 
     def start(self):
         # ────────────────────────
-        # VM 시작.
+        # 6.VM 시작.
         # ────────────────────────
         print(f"Starting VM: {os.path.basename(self.vmx_path)}")
         return self._run_vmrun(["start", "nogui"])
 
     def stop(self, mode="soft"):
         # ────────────────────────
-        # VM 종료.
+        # 7.VM 종료.
         # ────────────────────────
         print(f"Stopping VM: {os.path.basename(self.vmx_path)}")
         return self._run_vmrun(["stop", mode])
 
+    def reset(self, mode="soft"):
+        # ─────────────────────
+        # 8. VM 재시작 (Reset)
+        # ─────────────────────
+        print(f"Resetting VM ({mode}): {os.path.basename(self.vmx_path)}")
+        return self._run_vmrun(["reset", mode])
+
     def get_ip(self, timeout=120, check_ip=None):
         # ────────────────────────
-        # 게스트 OS IP 획득.
+        # 9.게스트 OS IP 획득.
         # ────────────────────────
         start_time = time.time()
         print("VMware Tools IP 대기 중...")
@@ -158,9 +262,8 @@ class VMwareController:
 
     def clone(self, new_vmx_path):
         # ──────────────────────────────
-        # VM 전체 복제 및 설정 주입.
+        # 10.VM 전체 복제 및 설정 주입.
         # ──────────────────────────────
-        import shutil
         new_dir = os.path.dirname(new_vmx_path)
 
         if os.path.exists(new_dir):
@@ -171,43 +274,18 @@ class VMwareController:
         result = self._run_vmrun(["clone", self.vmx_path, new_vmx_path, "full"])
 
         if result is not None and os.path.exists(new_vmx_path):
+            # 리소스 상한 포함한 VMX 설정 주입 
             self._inject_vmx_settings(new_vmx_path)
-
             time.sleep(2)
         return result
 
-    def get_next_ip(self, clone_root_dir, base_ip):
-        # ───────────────────────────────────────────
-        # 기존 폴더 확인 후 다음 사용 가능한 IP 계산.
-        # ───────────────────────────────────────────
-        folders = glob.glob(os.path.join(clone_root_dir, "Clone_*"))
-        if not folders:
-            return self._increment_ip(base_ip)
-        existing_nums = []
-        for f in folders:
-            try:
-                num = int(os.path.basename(f).split("_")[-1])
-                existing_nums.append(num)
-            except:
-                continue
-        next_num = max(existing_nums) + 1 if existing_nums else 122
-        parts = base_ip.split(".")
-        parts[-1] = str(next_num)
-        return ".".join(parts)
-
-    def _increment_ip(self, base_ip):
-        # ───────────────────────────────────────────
-        # IP의 마지막 옥텟을 1 증가시킴 (내부 메서드).
-        # ───────────────────────────────────────────
-        parts = base_ip.split(".")
-        parts[-1] = str(int(parts[-1]) + 1)
-        return ".".join(parts)
-
-    def set_static_ip(self, current_ip, guest_user, guest_pw, new_ip,gate_ip, subnet_mask, interface):
+    def set_static_ip(self, current_ip, guest_user, new_ip,gate_ip, subnet_mask, interface,
+                    password=None, pkey_str=None):
         # ─────────────────────────────────────────────────
-        # Linux NetworkManager 설정을 통한 고정 IP 주입.
+        # 11.Linux NetworkManager 설정을 통한 고정 IP 주입.
+        # pkey_str 우선, 없으면 password fallback (최초 주입 시)
         # ─────────────────────────────────────────────────
-        if not self._wait_ssh(current_ip, guest_user, guest_pw):
+        if not self._wait_ssh(current_ip, guest_user, password=password, pkey_str=pkey_str):
             print("❌ SSH 접속 실패 - IP 변경 불가")
             return None
 
@@ -222,13 +300,13 @@ class VMwareController:
         )
 
         print(f"SSH로 IP 변경 중: {current_ip} → {new_ip}")
-        result = self._run_ssh(current_ip, guest_user, guest_pw, cmd)
+        result = self._run_ssh(current_ip, guest_user, cmd, password=password, pkey_str=pkey_str)
         print(f"IP 변경 명령 완료: {result}")
         return result
 
-    def regenerate_ssh_hostkey(self, ip, guest_user, guest_pw):
+    def regenerate_ssh_hostkey(self, ip, guest_user, password=None, pkey_str=None):
         # ───────────────────────────────
-        # SSH 호스트 키 재생성.
+        # 12.SSH 호스트 키 재생성.
         # ───────────────────────────────
         cmd = (
             "rm -f /etc/ssh/ssh_host_* && "
@@ -236,16 +314,59 @@ class VMwareController:
             "systemctl restart sshd"
         )
         print(f"SSH host key 재생성 중: {ip}")
-        return self._run_ssh(ip, guest_user, guest_pw, cmd)
+        return self._run_ssh(ip, guest_user, cmd, password=password, pkey_str=pkey_str)
     
+    def inject_public_key(self, ip, guest_user, guest_pw, public_key_str):
+        # ──────────────────────────
+        # 13.게스트 OS에 공개키 주입
+        # ──────────────────────────
+        cmd = (
+            f"mkdir -p ~/.ssh && "
+            f"chmod 700 ~/.ssh && "
+            f"echo '{public_key_str}' >> ~/.ssh/authorized_keys && "
+            f"chmod 600 ~/.ssh/authorized_keys && "
+            # ─── 패스워드 로그인 비활성화 (PEM 전환 완료 후 보안 강화) ───
+            f"sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config && "
+            f"systemctl reload sshd"
+        )
+
+        print(f"공개키 주입 중: {ip}")
+        return self._run_ssh(ip, guest_user, cmd, password=guest_pw)
+    
+    def get_host_pubkey(self, ip, guest_user, pkey_str):
+        # ───────────────────────────────────
+        # 14. SSH 호스트 키 fingerprint 조회
+        # ───────────────────────────────────
+        cmd = (
+            "cat /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || "
+            "cat /etc/ssh/ssh_host_rsa_key.pub"
+        )
+        result = self._run_ssh(ip, guest_user, cmd, pkey_str=pkey_str)
+        if result:
+            # ─── 출력 형식: "ssh-ed25519 AAAA... comment" ───
+            parts = result.split()
+            if len(parts) >= 2:
+                known_hosts_line = f"{ip} {parts[0]} {parts[1]}"
+                print(f"호스트 fingerprint 획득: {parts[0]}")
+                return known_hosts_line
+        print(f"[WARN] fingerprint 획득 실패: {ip}")
+        return None
+
     def _check_port_open(self, ip, port):
         # ───────────────────────────────
-        # 특정 포트 통신 가능 여부 확인.
+        # 13.특정 포트 통신 가능 여부 확인.
         # ───────────────────────────────
-        import socket
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
         result = sock.connect_ex((ip, port))
         sock.close()
         return result == 0
     
+    def is_running(self):
+        # ─────────────────────────
+        # 14. 현재 실행 여부 조회
+        # ─────────────────────────
+        result = self._run_vmrun(["list"])
+        if result:
+            return os.path.normpath(self.vmx_path) in os.path.normpath(result)
+        return False

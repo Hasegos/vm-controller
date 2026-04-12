@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from db.base_class import Base
 
@@ -27,6 +27,13 @@ class VM(Base):
 
     # 현재 서버 상태 (기본값: 생성 중)
     status = Column(String, default="creating")
+
+    # ────────────────
+    # SSH 키 관련 컬럼
+    # ────────────────
+    ssh_public_key      = Column(Text, nullable=True)
+    ssh_private_key     = Column(Text, nullable=True)
+    ssh_host_fingerprint = Column(String, nullable=True)
 
     # ───────────────────────
     # 3. 외래키 및 관계 설정
