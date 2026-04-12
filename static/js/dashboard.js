@@ -185,8 +185,17 @@ async function syncStatus() {
 }
 
 /**
+ * ─────────────────────────────────────
+ * 6. 터미널 새 탭 열기
+ * ─────────────────────────────────────
+ */
+function openTerminal(vmId) {
+    window.open(`/terminal/${vmId}`, '_blank');
+}
+
+/**
  * ───────────────────────────────
- * 6. 상태 배지 UI 렌더링 유틸리티
+ * 7. 상태 배지 UI 렌더링 유틸리티
  * ───────────────────────────────
  */
 function updateBadgeUI(badge, status) {
@@ -209,7 +218,7 @@ function updateBadgeUI(badge, status) {
 
 /**
  * ─────────────────────────────────────
- * 7. 주기적 실행 설정 (3초 간격 Polling)
+ * 8. 주기적 실행 설정 (3초 간격 Polling)
  * ─────────────────────────────────────
  */
 document.addEventListener('DOMContentLoaded', syncStatus);
