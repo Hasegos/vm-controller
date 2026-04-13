@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Request, HTTPException
 from sqlalchemy.orm import Session
 from db.session import get_db
+from celery.result import AsyncResult
 
 from core.auth import get_current_user
 from core.templates import templates
@@ -8,7 +9,7 @@ from core.config import settings
 from schemas.vm_schema import VMCreate
 from models.vm_model import VM
 from models.user_model import User
-from worker import create_vm_task_async, control_vm_task_async, delete_vm_task_async
+from worker import create_vm_task_async, control_vm_task_async, delete_vm_task_async, celery_app
 from crud import vm_crud
 
 router = APIRouter()
@@ -89,7 +90,7 @@ async def vm_control(
 ):
 
   # ─── 1. action 화이트리스트 검증 ───
-  if action not in settings.ALLOWED_ACTIONS:
+  if action not in ALLOWED_ACTIONS:
       raise HTTPException(status_code=400, detail="허용되지 않은 명령입니다.")
 
   # ─── 2. 권한 및 세션 검증 ───
@@ -193,3 +194,53 @@ async def get_vms_status(
   return [
     {"id": v.id, "status": v.status} for v in vms
   ]
+
+# ──────────────────────────────────────────────────────────────────────
+# 6. VM 생성 태스크 결과 조회 (폴링용)
+# ──────────────────────────────────────────────────────────────────────
+@router.get("/vm/task/{task_id}")
+async def get_task_result(
+  task_id: str,
+  db: Session = Depends(get_db),
+  username: str = Depends(get_current_user)
+):
+  """
+  Celery 태스크 완료 여부 및 결과 조회.
+  VM 생성 완료 시 private_key를 1회 반환하고 이후 삭제.
+  """
+  result = AsyncResult(task_id, app=celery_app)
+  
+  # ─── 아직 진행 중 ───
+  if not result.ready():
+    return {"status" : "pending"}
+  
+  # ─── 실패 ───
+  if result.failed():
+    return {"status" : "error" , "message" : "Vm 생성실패"}
+  
+  # ─── 성공 ───
+  data = result.result
+  if not isinstance(data, dict):
+    return {"status": "error", "message": "알 수 없는 오류"}
+  
+  if data.get("status") == "success" and "private_key" in data:
+    private_key = data.pop("private_key")
+    vm_id = data.get("vm_id")
+    
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+      raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다.")
+    
+    vm = db.query(VM).filter(VM.id == vm_id, VM.owner_id == user.id).first()
+    if not vm:
+      raise HTTPException(status_code=403, detail="권한이 없습니다.")
+    
+    # ─── 태스크 결과에서 private_key 제거 (1회성) ───
+    result.forget()
+    return {
+      "status": "success",
+      "private_key": private_key,
+      "vm_id" : vm_id
+    }
+    
+  return {"status": "error", "message": data.get("message", "알 수 없는 오류")}
