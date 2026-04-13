@@ -15,15 +15,19 @@ document.getElementById('btnForge').addEventListener('click', async () => {
 
     try {
         // ─── 2. 생성 API 호출 ───
-        await apiRequest('/create-vm', {
+        const res = await apiRequest('/create-vm', {
             method: 'POST',
             body: JSON.stringify({ os_type: osValue })
         });
-        
-        alert("인프라 생성이 시작되었습니다. 목록에서 상태를 확인하세요.");
+
+        const taskId = res.task_id;
+        btn.innerText = "생성 중...";
 
         // ─── 3. 즉시 상태 동기화 ───
         await syncStatus(); 
+
+        // ─── 4. 완료 폴링 → .pem 다운로드 ───
+        await pollTaskResult(taskId);
 
     } catch (e) {
         alert("생성 실패: " + e.message);
@@ -31,12 +35,75 @@ document.getElementById('btnForge').addEventListener('click', async () => {
         // ─── 4. UI 복구 ───
         btn.disabled = false;
         btn.innerText = originalText;
+        await syncStatus(); 
     }
 });
 
 /**
+ * ────────────────────────────────────────────────
+ * 2. Celery 태스크 완료 폴링 + .pem 자동 다운로드
+ * ────────────────────────────────────────────────
+ */
+async function pollTaskResult(taskId) {
+    const MAX_RETRY = 60;
+ 
+    for (let i = 0; i < MAX_RETRY; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+ 
+        try {
+            const result = await apiRequest(`/vm/task/${taskId}`);
+ 
+            // ─── 아직 진행 중 ───
+            if (result.status === "pending") continue;
+ 
+            // ─── 성공: .pem 다운로드 ───
+            if (result.status === "success" && result.private_key) {
+                downloadPem(result.private_key, `cloudforge-vm-${result.vm_id}.pem`);
+                alert(
+                    "✅ VM 생성 완료!\n\n" +
+                    ".pem 파일이 다운로드됩니다.\n" +
+                    "이 파일은 외부 SSH 접속 시 필요하며,\n" +
+                    "보안상 다시 다운로드할 수 없습니다."
+                );
+                return;
+            }
+ 
+            // ─── 실패 ───
+            if (result.status === "error") {
+                alert("VM 생성 실패: " + (result.message || "알 수 없는 오류"));
+                return;
+            }
+ 
+        } catch (e) {
+            console.warn("폴링 실패:", e.message);
+        }
+    }
+ 
+    // ─── 타임아웃 ───
+    alert("VM 생성 시간이 초과되었습니다. 목록에서 상태를 확인하세요.");
+}
+ 
+/**
+ * ───────────────────────────
+ * 3. .pem 파일 Blob 다운로드
+ * ───────────────────────────
+ */
+function downloadPem(privateKeyStr, filename) {
+    const blob = new Blob([privateKeyStr], { type: "application/x-pem-file" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+ 
+    a.href     = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+/**
  * ────────────────────────────────────────
- * 2. 전원 제어 함수 (Start, Stop, Reboot)
+ * 4. 전원 제어 함수 (Start, Stop, Reboot)
  * ────────────────────────────────────────
  */
 async function controlVM(vmId, action) {
@@ -74,9 +141,9 @@ async function controlVM(vmId, action) {
 }
 
 /**
- * ─────────────────────────────────────────────────────────────
- * 3. VM 삭제 함수
- * ─────────────────────────────────────────────────────────────
+ * ───────────────────
+ * 5. VM 삭제 함수
+ * ───────────────────
  */
 async function deleteVM(vmId, vmName) {
     // ─── 1. 이중 확인 (되돌릴 수 없는 작업) ───
@@ -110,7 +177,7 @@ async function deleteVM(vmId, vmName) {
 
 /**
  * ─────────────────────────────────────────────────────────────
- * 4. 삭제 완료 감지 후 DOM row 제거 (Polling 연동)
+ * 6. 삭제 완료 감지 후 DOM row 제거 (Polling 연동)
  *    status-list API에서 해당 vmId가 사라지면 row를 DOM에서 삭제
  * ─────────────────────────────────────────────────────────────
  */
@@ -142,7 +209,7 @@ function waitAndRemoveRow(vmId) {
 
 /**
  * ────────────────────────────────────
- * 5. 서버 상태 실시간 동기화 (Polling)
+ * 7. 서버 상태 실시간 동기화 (Polling)
  * ────────────────────────────────────
  */
 async function syncStatus() {
@@ -186,7 +253,7 @@ async function syncStatus() {
 
 /**
  * ─────────────────────────────────────
- * 6. 터미널 새 탭 열기
+ * 8. 터미널 새 탭 열기
  * ─────────────────────────────────────
  */
 function openTerminal(vmId) {
@@ -195,7 +262,7 @@ function openTerminal(vmId) {
 
 /**
  * ───────────────────────────────
- * 7. 상태 배지 UI 렌더링 유틸리티
+ * 9. 상태 배지 UI 렌더링 유틸리티
  * ───────────────────────────────
  */
 function updateBadgeUI(badge, status) {
@@ -218,7 +285,7 @@ function updateBadgeUI(badge, status) {
 
 /**
  * ─────────────────────────────────────
- * 8. 주기적 실행 설정 (3초 간격 Polling)
+ * 10. 주기적 실행 설정 (3초 간격 Polling)
  * ─────────────────────────────────────
  */
 document.addEventListener('DOMContentLoaded', syncStatus);
