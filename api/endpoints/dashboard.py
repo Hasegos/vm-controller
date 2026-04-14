@@ -77,9 +77,59 @@ async def create_vm(
     "message": f"{payload.os_type} VM 생성이 시작되었습니다.",
     "task_id": task.id
   }
+  
+# ─────────────────────────────────────────────
+# 3. VM 생성 태스크 결과 조회 (폴링용)
+# ─────────────────────────────────────────────
+@router.get("/vm/task/{task_id}")
+async def get_task_result(
+  task_id: str,
+  db: Session = Depends(get_db),
+  username: str = Depends(get_current_user)
+):
+  """
+  Celery 태스크 완료 여부 및 결과 조회.
+  VM 생성 완료 시 private_key를 1회 반환하고 이후 삭제.
+  """
+  result = AsyncResult(task_id, app=celery_app)
+  
+  # ─── 아직 진행 중 ───
+  if not result.ready():
+    return {"status" : "pending"}
+  
+  # ─── 실패 ───
+  if result.failed():
+    return {"status" : "error" , "message" : "Vm 생성실패"}
+  
+  # ─── 성공 ───
+  data = result.result
+  if not isinstance(data, dict):
+    return {"status": "error", "message": "알 수 없는 오류"}
+  
+  if data.get("status") == "success" and "private_key" in data:
+    private_key = data.pop("private_key")
+    vm_id = data.get("vm_id")
+    
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+      raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다.")
+    
+    vm = db.query(VM).filter(VM.id == vm_id, VM.owner_id == user.id).first()
+    if not vm:
+      raise HTTPException(status_code=403, detail="권한이 없습니다.")
+    
+    # ─── 태스크 결과에서 private_key 제거 (1회성) ───
+    result.forget()
+    return {
+      "status": "success",
+      "private_key": private_key,
+      "vm_id" : vm_id
+    }
+    
+  return {"status": "error", "message": data.get("message", "알 수 없는 오류")}  
 
 # ──────────────────────────────────────────
-# 3. VM 전원 및 제어 (Start/Stop/Reboot 등)
+# 4. VM 전원 및 제어 (Start/Stop/Reboot 등)
 # ──────────────────────────────────────────
 @router.post("/vm/{vm_id}/control")
 async def vm_control(
@@ -126,7 +176,7 @@ async def vm_control(
   return {"status": "success", "message": "명령이 대기열에 등록되었습니다."}
 
 # ──────────────────────────────────────────────────────────
-# 4. VM 삭제 요청 (강제 종료 → 폴더 삭제 → IP 회수 비동기)
+# 5. VM 삭제 요청 (강제 종료 → 폴더 삭제 → IP 회수 비동기)
 # ──────────────────────────────────────────────────────────
 @router.delete("/vm/{vm_id}")
 async def delete_vm(
@@ -171,7 +221,7 @@ async def delete_vm(
   }
 
 # ────────────────────────────────────────────
-# 5. 실시간 VM 상태 목록 조회 (Polling용 API)
+# 6. 실시간 VM 상태 목록 조회 (Polling용 API)
 # ────────────────────────────────────────────
 @router.get("/vms/status-list")
 async def get_vms_status(
@@ -192,55 +242,12 @@ async def get_vms_status(
   vms = db.query(VM).filter(VM.owner_id == user.id).all()
 
   return [
-    {"id": v.id, "status": v.status} for v in vms
+    {
+      "id":            v.id,
+      "status":        v.status,
+      "cpu":           v.latest_cpu,
+      "mem":        v.latest_mem,
+      "is_overloaded": v.is_overloaded
+    } for v in vms
   ]
 
-# ──────────────────────────────────────────────────────────────────────
-# 6. VM 생성 태스크 결과 조회 (폴링용)
-# ──────────────────────────────────────────────────────────────────────
-@router.get("/vm/task/{task_id}")
-async def get_task_result(
-  task_id: str,
-  db: Session = Depends(get_db),
-  username: str = Depends(get_current_user)
-):
-  """
-  Celery 태스크 완료 여부 및 결과 조회.
-  VM 생성 완료 시 private_key를 1회 반환하고 이후 삭제.
-  """
-  result = AsyncResult(task_id, app=celery_app)
-  
-  # ─── 아직 진행 중 ───
-  if not result.ready():
-    return {"status" : "pending"}
-  
-  # ─── 실패 ───
-  if result.failed():
-    return {"status" : "error" , "message" : "Vm 생성실패"}
-  
-  # ─── 성공 ───
-  data = result.result
-  if not isinstance(data, dict):
-    return {"status": "error", "message": "알 수 없는 오류"}
-  
-  if data.get("status") == "success" and "private_key" in data:
-    private_key = data.pop("private_key")
-    vm_id = data.get("vm_id")
-    
-    user = db.query(User).filter(User.username == username).first()
-    if not user:
-      raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다.")
-    
-    vm = db.query(VM).filter(VM.id == vm_id, VM.owner_id == user.id).first()
-    if not vm:
-      raise HTTPException(status_code=403, detail="권한이 없습니다.")
-    
-    # ─── 태스크 결과에서 private_key 제거 (1회성) ───
-    result.forget()
-    return {
-      "status": "success",
-      "private_key": private_key,
-      "vm_id" : vm_id
-    }
-    
-  return {"status": "error", "message": data.get("message", "알 수 없는 오류")}
