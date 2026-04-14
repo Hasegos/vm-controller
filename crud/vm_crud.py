@@ -1,9 +1,9 @@
 from sqlalchemy.orm import Session
 from models.vm_model import VM
 
-# ─────────────────────────────────────────────────────────────
+# ────────────────────────────────────
 # 1. 신규 VM 데이터베이스 레코드 생성
-# ─────────────────────────────────────────────────────────────
+# ────────────────────────────────────
 def create_vm(db: Session, owner_id: int, ip: str, os: str, status: str = "creating"):
     """
     새로운 가상머신 정보를 DB에 기록합니다.
@@ -75,9 +75,9 @@ def get_vm_by_ip(db: Session, ip: str):
     """
     return db.query(VM).filter(VM.ip_address == ip).first()
 
-# ──────────────────────────────────────────────────────────────
+# ──────────────────────────
 # 5. SSH 공개키 저장
-# ──────────────────────────────────────────────────────────────
+# ──────────────────────────
 def update_vm_ssh_public_key(db: Session, vm_id: int, public_key: str):
     """
     VM의 SSH 공개키를 DB에 저장합니다.
@@ -125,3 +125,38 @@ def count_vms_by_owner(db: Session, owner_id: int) -> int:
     특정 사용자가 소유한 VM 수를 반환합니다.
     """
     return db.query(VM).filter(VM.owner_id == owner_id).count()
+
+# ─────────────────────────
+# 9. 리소스 사용량 업데이트
+# ─────────────────────────
+def update_vm_resources(db: Session, vm_id: int, cpu: float, mem: float):
+    """
+    CPU/RAM 사용률을 DB에 저장하고 과부하 여부를 판단합니다.
+    """
+    db_vm = db.query(VM).filter(VM.id == vm_id).first()
+    if db_vm:
+        db_vm.latest_cpu    = round(cpu, 1)
+        db_vm.latest_mem    = round(mem, 1)
+        db_vm.is_overloaded = cpu >= 90.0
+        db_vm.ssh_fail_count = 0  # 성공 시 실패 카운트 초기화
+        db.commit()
+        db.refresh(db_vm)
+    return db_vm
+ 
+# ─────────────────────────────────────────────
+# 10. ssh 수집 실패 카운트 증가 및 상태 업데이트
+# ─────────────────────────────────────────────
+def increment_vm_ssh_fail(db: Session, vm_id: int):
+    """
+    SSH 수집 실패 시 fail_count를 증가시킵니다.
+    3회 연속 실패 시 status를 "error"로 변경합니다.
+    """
+    db_vm = db.query(VM).filter(VM.id == vm_id).first()
+    if db_vm:
+        db_vm.ssh_fail_count = (db_vm.ssh_fail_count or 0) + 1
+        if db_vm.ssh_fail_count >= 3:
+            print(f"[모니터링] VM {vm_id} SSH 3회 연속 실패 → error 상태로 변경")
+            db_vm.status = "error"
+        db.commit()
+        db.refresh(db_vm)
+    return db_vm
