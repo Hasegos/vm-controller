@@ -172,7 +172,7 @@ class VMwareController:
 
     def _inject_vmx_settings(self, vmx_path):
         # ──────────────────────────────────────
-        # 5.VMX 파일에 UUID 및 MAC 생성 설정 주입.
+        # 6.VMX 파일에 UUID 및 MAC 생성 설정 주입.
         # ──────────────────────────────────────
         with open(vmx_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -223,28 +223,28 @@ class VMwareController:
 
     def start(self):
         # ────────────────────────
-        # 6.VM 시작.
+        # 7.VM 시작.
         # ────────────────────────
         print(f"Starting VM: {os.path.basename(self.vmx_path)}")
         return self._run_vmrun(["start", "nogui"])
 
     def stop(self, mode="soft"):
         # ────────────────────────
-        # 7.VM 종료.
+        # 8.VM 종료.
         # ────────────────────────
         print(f"Stopping VM: {os.path.basename(self.vmx_path)}")
         return self._run_vmrun(["stop", mode])
 
     def reset(self, mode="soft"):
         # ─────────────────────
-        # 8. VM 재시작 (Reset)
+        # 9. VM 재시작 (Reset)
         # ─────────────────────
         print(f"Resetting VM ({mode}): {os.path.basename(self.vmx_path)}")
         return self._run_vmrun(["reset", mode])
 
     def get_ip(self, timeout=120, check_ip=None):
         # ────────────────────────
-        # 9.게스트 OS IP 획득.
+        # 10.게스트 OS IP 획득.
         # ────────────────────────
         start_time = time.time()
         print("VMware Tools IP 대기 중...")
@@ -262,7 +262,7 @@ class VMwareController:
 
     def clone(self, new_vmx_path):
         # ──────────────────────────────
-        # 10.VM 전체 복제 및 설정 주입.
+        # 11.VM 전체 복제 및 설정 주입.
         # ──────────────────────────────
         new_dir = os.path.dirname(new_vmx_path)
 
@@ -282,7 +282,7 @@ class VMwareController:
     def set_static_ip(self, current_ip, guest_user, new_ip,gate_ip, subnet_mask, interface,
                     password=None, pkey_str=None):
         # ─────────────────────────────────────────────────
-        # 11.Linux NetworkManager 설정을 통한 고정 IP 주입.
+        # 12.Linux NetworkManager 설정을 통한 고정 IP 주입.
         # pkey_str 우선, 없으면 password fallback (최초 주입 시)
         # ─────────────────────────────────────────────────
         if not self._wait_ssh(current_ip, guest_user, password=password, pkey_str=pkey_str):
@@ -306,7 +306,7 @@ class VMwareController:
 
     def regenerate_ssh_hostkey(self, ip, guest_user, password=None, pkey_str=None):
         # ───────────────────────────────
-        # 12.SSH 호스트 키 재생성.
+        # 13.SSH 호스트 키 재생성.
         # ───────────────────────────────
         cmd = (
             "rm -f /etc/ssh/ssh_host_* && "
@@ -318,7 +318,7 @@ class VMwareController:
     
     def inject_public_key(self, ip, guest_user, guest_pw, public_key_str):
         # ──────────────────────────
-        # 13.게스트 OS에 공개키 주입
+        # 14.게스트 OS에 공개키 주입
         # ──────────────────────────
         cmd = (
             f"mkdir -p ~/.ssh && "
@@ -335,7 +335,7 @@ class VMwareController:
     
     def get_host_pubkey(self, ip, guest_user, pkey_str):
         # ───────────────────────────────────
-        # 14. SSH 호스트 키 fingerprint 조회
+        # 15. SSH 호스트 키 fingerprint 조회
         # ───────────────────────────────────
         cmd = (
             "cat /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || "
@@ -354,7 +354,7 @@ class VMwareController:
 
     def _check_port_open(self, ip, port):
         # ───────────────────────────────
-        # 13.특정 포트 통신 가능 여부 확인.
+        # 16.특정 포트 통신 가능 여부 확인.
         # ───────────────────────────────
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
@@ -364,9 +364,71 @@ class VMwareController:
     
     def is_running(self):
         # ─────────────────────────
-        # 14. 현재 실행 여부 조회
+        # 17. 현재 실행 여부 조회
         # ─────────────────────────
         result = self._run_vmrun(["list"])
         if result:
             return os.path.normpath(self.vmx_path) in os.path.normpath(result)
         return False
+    
+    
+    @staticmethod
+    def collect_resources(ip: str, guest_user: str, pkey_str: str, os_type: str):
+        # ──────────────────────────────────────────────────────────
+        # 18. CPU/RAM 사용률 수집 (VMX 경로 없이 SSH만으로 동작)
+        # ──────────────────────────────────────────────────────────
+        def _is_float(value):
+            try:
+                float(value)
+                return True
+            except (ValueError, TypeError):
+                return False
+
+        try:
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+            pkey = paramiko.RSAKey.from_private_key(StringIO(pkey_str))
+            client.connect(
+                hostname=ip,
+                username=guest_user,
+                pkey=pkey,
+                timeout=10,
+                allow_agent=False,
+                look_for_keys=False
+            )
+
+            # ─── OS 타입별 CPU idle 추출 명령어 ───
+            if "ubuntu" in os_type.lower():
+                cpu_cmd = (
+                    "top -bn1 | grep '%Cpu' | "
+                    "awk '{for(i=1;i<=NF;i++) "
+                    "if($i==\"id,\" || $i==\"id\") print $(i-1)}' | "
+                    "tr -d '%'"
+                )
+            else:
+                # ─── Rocky Linux 9 ───
+                cpu_cmd = (
+                    "top -bn1 | grep '%Cpu' | "
+                    "awk '{print $8}' | tr -d '%,'"
+                )
+
+            # ─── RAM 명령어 (공통) ───
+            mem_cmd = "free -m | awk 'NR==2{printf \"%.1f\", $3/$2*100}'"
+
+            # ─── CPU 수집 ───
+            _, stdout, _ = client.exec_command(cpu_cmd, timeout=10)
+            cpu_idle_str = stdout.read().decode().strip()
+            cpu_usage    = round(100.0 - float(cpu_idle_str), 1) if _is_float(cpu_idle_str) else 0.0
+
+            # ─── RAM 수집 ───
+            _, stdout, _ = client.exec_command(mem_cmd, timeout=10)
+            mem_str   = stdout.read().decode().strip()
+            mem_usage = float(mem_str) if _is_float(mem_str) else 0.0
+
+            client.close()
+            return cpu_usage, mem_usage
+
+        except Exception as e:
+            print(f"[모니터링] {ip} 리소스 수집 실패: {e}")
+            return None
