@@ -1,6 +1,150 @@
 /**
  * ─────────────────────────────────────────────────────────────
- * 1. 서버 생성 이벤트 (인프라 신규 Forge)
+ * 1. 원형 게이지 차트 인스턴스 저장소
+ * ─────────────────────────────────────────────────────────────
+ */
+const gaugeCharts = {};
+ 
+/**
+ * ─────────────────────────────────────────────────────────────
+ * 2. 게이지 색상 결정
+ * 0~70%  → 초록 (#3fb950)
+ * 70~90% → 주황 (#d29922)
+ * 90~100%→ 빨강 (#f85149)
+ * ─────────────────────────────────────────────────────────────
+ */
+function getGaugeColor(value) {
+    if (value >= 90) return '#f85149';
+    if (value >= 70) return '#d29922';
+    return '#3fb950';
+}
+ 
+/**
+ * ─────────────────────────────────────────────────────────────
+ * 3. 원형 게이지 렌더링 / 업데이트
+ * ─────────────────────────────────────────────────────────────
+ */
+function renderGauge(canvasId, value) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+ 
+    const color     = getGaugeColor(value);
+    const remaining = 100 - value;
+    const data = {
+        datasets: [{
+            data: [value, remaining],
+            backgroundColor: [color, '#21262d'],
+            borderWidth: 0,
+            circumference: 270,
+            rotation: 225,
+        }]
+    };
+ 
+    if (gaugeCharts[canvasId]) {
+        // ─── 이미 있으면 데이터만 업데이트 ───
+        gaugeCharts[canvasId].data.datasets[0].data            = [value, remaining];
+        gaugeCharts[canvasId].data.datasets[0].backgroundColor = [color, '#21262d'];
+        gaugeCharts[canvasId].update();
+    } else {
+        // ─── 최초 생성 ───
+        gaugeCharts[canvasId] = new Chart(canvas, {
+            type: 'doughnut',
+            data,
+            options: {
+                responsive:       false,
+                cutout:           '72%',
+                animation:        { duration: 400 },
+                plugins: { legend: { display: false }, tooltip: { enabled: false } }
+            }
+        });
+    }
+}
+ 
+/**
+ * ─────────────────────────────────────────────────────────────
+ * 4. VM 리소스 게이지 UI 전체 업데이트
+ * ─────────────────────────────────────────────────────────────
+ */
+function updateResourceUI(vmId, cpu, mem, isOverloaded) {
+    const row = document.querySelector(`.vm-item[data-id="${vmId}"]`);
+    if (!row) return;
+
+    const resourceArea = document.getElementById(`resources-${vmId}`);
+    if (!resourceArea) return;
+
+    if (cpu !== null && cpu !== undefined) {
+        if (!document.getElementById(`cpu-gauge-${vmId}`)) {
+            resourceArea.textContent = '';
+
+            ['cpu', 'mem'].forEach(type => {
+                const wrap   = document.createElement('div');
+                wrap.className = 'gauge-wrap';
+
+                const canvas = document.createElement('canvas');
+                canvas.id    = `${type}-gauge-${vmId}`;
+
+                const label  = document.createElement('span');
+                label.className   = 'gauge-label';
+                label.textContent = type === 'cpu' ? 'CPU' : 'RAM';
+
+                const value  = document.createElement('span');
+                value.className   = 'gauge-value';
+                value.id          = `${type}-val-${vmId}`;
+                value.textContent = '0%';
+
+                wrap.appendChild(canvas);
+                wrap.appendChild(label);
+                wrap.appendChild(value);
+                resourceArea.appendChild(wrap);
+            });
+        }
+
+        renderGauge(`cpu-gauge-${vmId}`, cpu);
+        renderGauge(`mem-gauge-${vmId}`, mem);
+
+        const cpuVal = document.getElementById(`cpu-val-${vmId}`);
+        const memVal = document.getElementById(`mem-val-${vmId}`);
+        if (cpuVal) cpuVal.textContent = `${cpu.toFixed(1)}%`;
+        if (memVal) memVal.textContent = `${mem.toFixed(1)}%`;
+
+    } else {
+        // ─── 데이터 없으면 게이지 제거 ───
+        ['cpu', 'mem'].forEach(type => {
+            const key = `${type}-gauge-${vmId}`;
+            if (gaugeCharts[key]) {
+                gaugeCharts[key].destroy();
+                delete gaugeCharts[key];
+            }
+        });
+
+        resourceArea.textContent = ''; 
+        const noData = document.createElement('span');
+        noData.className   = 'gauge-no-data';
+        noData.textContent = '─ 리소스 정보 없음';
+        resourceArea.appendChild(noData);
+    }
+
+    // ─── 과부하 경고 처리 ───
+    const badge         = row.querySelector('.status-badge');
+    const existingBadge = row.querySelector('.overload-badge');
+
+    if (isOverloaded) {
+        row.classList.add('overloaded');
+        if (!existingBadge) {
+            const overloadBadge       = document.createElement('span');
+            overloadBadge.className   = 'overload-badge';
+            overloadBadge.textContent = '⚠ 과부하 경고';
+            badge.insertAdjacentElement('afterend', overloadBadge);
+        }
+    } else {
+        row.classList.remove('overloaded');
+        if (existingBadge) existingBadge.remove();
+    }
+}
+ 
+/**
+ * ─────────────────────────────────────────────────────────────
+ * 5. 서버 생성 이벤트 (인프라 신규 Forge)
  * ─────────────────────────────────────────────────────────────
  */
 document.getElementById('btnForge').addEventListener('click', async () => {
@@ -41,7 +185,7 @@ document.getElementById('btnForge').addEventListener('click', async () => {
 
 /**
  * ────────────────────────────────────────────────
- * 2. Celery 태스크 완료 폴링 + .pem 자동 다운로드
+ * 6. Celery 태스크 완료 폴링 + .pem 자동 다운로드
  * ────────────────────────────────────────────────
  */
 async function pollTaskResult(taskId) {
@@ -85,7 +229,7 @@ async function pollTaskResult(taskId) {
  
 /**
  * ───────────────────────────
- * 3. .pem 파일 Blob 다운로드
+ * 7. .pem 파일 Blob 다운로드
  * ───────────────────────────
  */
 function downloadPem(privateKeyStr, filename) {
@@ -103,7 +247,7 @@ function downloadPem(privateKeyStr, filename) {
 
 /**
  * ────────────────────────────────────────
- * 4. 전원 제어 함수 (Start, Stop, Reboot)
+ * 8. 전원 제어 함수 (Start, Stop, Reboot)
  * ────────────────────────────────────────
  */
 async function controlVM(vmId, action) {
@@ -142,7 +286,7 @@ async function controlVM(vmId, action) {
 
 /**
  * ───────────────────
- * 5. VM 삭제 함수
+ * 9. VM 삭제 함수
  * ───────────────────
  */
 async function deleteVM(vmId, vmName) {
@@ -177,7 +321,7 @@ async function deleteVM(vmId, vmName) {
 
 /**
  * ─────────────────────────────────────────────────────────────
- * 6. 삭제 완료 감지 후 DOM row 제거 (Polling 연동)
+ * 10. 삭제 완료 감지 후 DOM row 제거 (Polling 연동)
  *    status-list API에서 해당 vmId가 사라지면 row를 DOM에서 삭제
  * ─────────────────────────────────────────────────────────────
  */
@@ -209,7 +353,7 @@ function waitAndRemoveRow(vmId) {
 
 /**
  * ────────────────────────────────────
- * 7. 서버 상태 실시간 동기화 (Polling)
+ * 11. 서버 상태 실시간 동기화 (Polling)
  * ────────────────────────────────────
  */
 async function syncStatus() {
@@ -245,6 +389,14 @@ async function syncStatus() {
             btns.forEach(btn => {
                 btn.disabled = finalLock;
             });
+
+            // ─── 리소스 게이지 업데이트 ───
+            if (vm.status === 'running') {
+                updateResourceUI(vm.id, vm.cpu, vm.mem, vm.is_overloaded);
+            } else {
+                // stopped/error 등 → 게이지 비활성화
+                updateResourceUI(vm.id, null, null, false);
+            }
         });
     } catch (e) {
         showError(e);
@@ -253,7 +405,7 @@ async function syncStatus() {
 
 /**
  * ─────────────────────────────────────
- * 8. 터미널 새 탭 열기
+ * 12. 터미널 새 탭 열기
  * ─────────────────────────────────────
  */
 function openTerminal(vmId) {
@@ -262,7 +414,7 @@ function openTerminal(vmId) {
 
 /**
  * ───────────────────────────────
- * 9. 상태 배지 UI 렌더링 유틸리티
+ * 13. 상태 배지 UI 렌더링 유틸리티
  * ───────────────────────────────
  */
 function updateBadgeUI(badge, status) {
@@ -285,7 +437,7 @@ function updateBadgeUI(badge, status) {
 
 /**
  * ─────────────────────────────────────
- * 10. 주기적 실행 설정 (3초 간격 Polling)
+ * 14. 주기적 실행 설정 (3초 간격 Polling)
  * ─────────────────────────────────────
  */
 document.addEventListener('DOMContentLoaded', syncStatus);
