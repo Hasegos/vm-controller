@@ -36,6 +36,25 @@
                     <span class="vm-ip">({{ vm.ip_address }})</span>
                     <span class="status-badge">{{ vm.status.upper() }}</span>
                 </div>
+
+                <div class="vm-resources" id="resources-{{ vm.id }}">
+                    {% if vm.status == 'running' and vm.latest_cpu is not none %}
+                    <div class="gauge-wrap">
+                        <canvas id="cpu-gauge-{{ vm.id }}"></canvas>
+                        <span class="gauge-label">CPU</span>
+                        <span class="gauge-value" id="cpu-val-{{ vm.id }}">{{ vm.latest_cpu }}%</span>
+                    </div>
+
+                    <div class="gauge-wrap">
+                        <canvas id="mem-gauge-{{ vm.id }}"></canvas>
+                        <span class="gauge-label">RAM</span>
+                        <span class="gauge-value" id="mem-val-{{ vm.id }}">{{ vm.latest_mem }}%</span>
+                    </div>
+                    {% else %}
+                    <span class="gauge-no-data">─ 리소스 정보 없음</span>
+                    {% endif %}
+                </div>
+
                 <div class="vm-actions">
                     <button type="button" onclick="controlVM('{{ vm.id }}', 'start')" class="btn-sm">시작</button>
                     <button type="button" onclick="controlVM('{{ vm.id }}', 'reboot_soft')" class="btn-sm">재부팅</button>
@@ -50,6 +69,8 @@
             <p id="emptyMsg" class="empty-msg">활성화된 서버가 없습니다.</p>
         {% endif %}
         </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="../static/js/apiClient.js"></script>
     <script src="../static/js/dashboard.js"></script>
 </body>
