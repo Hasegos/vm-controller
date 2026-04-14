@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, ForeignKey, Text, Float, Boolean
 from sqlalchemy.orm import relationship
 from db.base_class import Base
 
@@ -34,6 +34,14 @@ class VM(Base):
     ssh_public_key      = Column(Text, nullable=True)
     ssh_private_key     = Column(Text, nullable=True)
     ssh_host_fingerprint = Column(String, nullable=True)
+    
+    # ────────────────────
+    # 리소스 모니터링 컬럼
+    # ────────────────────
+    latest_cpu = Column(Float, nullable=True, default=None)
+    latest_mem = Column(Float, nullable=True, default=None)
+    is_overloaded = Column(Boolean, default=False)
+    ssh_fail_count = Column(Integer, default=0)
 
     # ───────────────────────
     # 3. 외래키 및 관계 설정
