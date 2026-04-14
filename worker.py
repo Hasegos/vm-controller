@@ -1,10 +1,17 @@
 import asyncio
+import paramiko
+
+from io import StringIO
 from celery import Celery
 from db.session import SessionLocal
 from crud import user_crud, vm_crud
 from services.vm_service import create_new_vm_task, control_vm_power, delete_vm_task
+
+from models.vm_model import VM
 from models.user_model import User
 from core.config import settings
+from core.crypto_utils import decrypt_private_key
+from core.vm_manager import VMwareController
 
 # ───────────────────────────────────────────
 # 1. Celery 앱 초기화 (Redis Broker/Backend)
@@ -14,6 +21,18 @@ celery_app = Celery(
     broker="redis://localhost:6379/0",
     backend="redis://localhost:6379/0"
 )
+
+# ─────────────────────────────
+# 2. Celery beat 스케줄 설정
+# ─────────────────────────────
+celery_app.conf.beat_schedule = {
+    "collect-vm-resources-every-30s": {
+        "task":     "collect_vm_resources",
+        "schedule": 30.0,
+    },
+}
+
+celery_app.conf.timezone = "Asia/Seoul"
 
 # ──────────────────────────
 # 2. 비동기 VM 생성 태스크
@@ -89,6 +108,65 @@ def delete_vm_task_async(vm_id: int, owner_id: int):
         return result
     
     except Exception as e:
+        return {"status": "error", "detail": str(e)}
+    
+    finally:
+        db.close()
+        
+# ──────────────────────────
+# 5. VM 리소스 수집 태스크
+# ──────────────────────────
+@celery_app.task(name="collect_vm_resources")
+def collect_vm_resources():
+    """
+    실행 중인 모든 VM의 CPU/RAM 사용률을 30초마다 수집합니다.
+    - SSH 접속 및 명령어 실행
+    - 수집 실패 시 fail_count 증가, 3회 연속 실패 시 error 처리
+    - CPU 90% 이상 시 is_overloaded=True
+    """
+    db = SessionLocal()
+    try:
+        # ─── 실행 중인 VM만 조회 ───
+        running_vms = db.query(VM).filter(VM.status == "running").all()
+ 
+        if not running_vms:
+            return {"status": "success", "message": "실행 중인 VM 없음"}
+ 
+        print(f"[모니터링] 리소스 수집 시작: {len(running_vms)}개 VM")
+ 
+        for vm in running_vms:
+            # ─── 개인키 또는 IP 없으면 스킵 ───
+            if not vm.ssh_private_key or not vm.ip_address:
+                continue
+ 
+            try:
+                # ─── 개인키 복호화 ───
+                private_key_str = decrypt_private_key(vm.ssh_private_key)
+ 
+                # ─── vm_manager에 SSH 수집 위임 ───
+                result = VMwareController.collect_resources(
+                    ip=vm.ip_address,
+                    guest_user=settings.GUEST_USER,
+                    pkey_str=private_key_str,
+                    os_type=vm.os_type
+                )
+ 
+                if result is not None:
+                    cpu_usage, mem_usage = result
+                    vm_crud.update_vm_resources(db, vm.id, cpu_usage, mem_usage)
+                    print(f"[모니터링] VM {vm.id} ({vm.ip_address}) CPU: {cpu_usage}% / MEM: {mem_usage}%")
+                    
+                else:
+                    vm_crud.increment_vm_ssh_fail(db, vm.id)
+ 
+            except Exception as e:
+                print(f"[모니터링] VM {vm.id} 수집 오류: {e}")
+                vm_crud.increment_vm_ssh_fail(db, vm.id)
+ 
+        return {"status": "success", "collected": len(running_vms)}
+ 
+    except Exception as e:
+        print(f"[모니터링] 전체 수집 오류: {e}")
         return {"status": "error", "detail": str(e)}
     
     finally:
