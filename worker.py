@@ -1,5 +1,5 @@
+import os
 import asyncio
-import paramiko
 
 from io import StringIO
 from celery import Celery
@@ -30,12 +30,17 @@ celery_app.conf.beat_schedule = {
         "task":     "collect_vm_resources",
         "schedule": 30.0,
     },
+
+    "sync-vm-status-every-60s": {
+        "task":     "sync_vm_status",
+        "schedule": 60.0,
+    }
 }
 
 celery_app.conf.timezone = "Asia/Seoul"
 
 # ──────────────────────────
-# 2. 비동기 VM 생성 태스크
+# 3. 비동기 VM 생성 태스크
 # ──────────────────────────
 @celery_app.task(name="create_vm_task_async")
 def create_vm_task_async(user_id: str, os_type: str):
@@ -54,7 +59,7 @@ def create_vm_task_async(user_id: str, os_type: str):
         # ─── VM 개수 2차 제한 (Race Condition 대비) ───
         vm_count = vm_crud.count_vms_by_owner(db, owner_id=user_id)
         if vm_count >= settings.MAX_VM_PER_USER:
-            print(f"[P1-1] VM 개수 초과 차단: user_id={user_id}, count={vm_count}")
+            print(f"VM 개수 초과 차단: user_id={user_id}, count={vm_count}")
             return {
                 "status":  "error",
                 "message": f"VM은 최대 {settings.MAX_VM_PER_USER}개까지 생성할 수 있습니다."
@@ -71,7 +76,7 @@ def create_vm_task_async(user_id: str, os_type: str):
         db.close()
 
 # ─────────────────────────────
-# 3. 비동기 VM 전원 제어 태스크
+# 4. 비동기 VM 전원 제어 태스크
 # ─────────────────────────────
 @celery_app.task(name="control_vm_task_async")
 def control_vm_task_async(vm_id: int, action: str, owner_id: int):
@@ -93,7 +98,7 @@ def control_vm_task_async(vm_id: int, action: str, owner_id: int):
         db.close()
 
 # ──────────────────────────
-# 4. 비동기 VM 삭제 태스크
+# 5. 비동기 VM 삭제 태스크
 # ──────────────────────────
 @celery_app.task(name="delete_vm_task_async")
 def delete_vm_task_async(vm_id: int, owner_id: int):
@@ -114,7 +119,7 @@ def delete_vm_task_async(vm_id: int, owner_id: int):
         db.close()
         
 # ──────────────────────────
-# 5. VM 리소스 수집 태스크
+# 6. VM 리소스 수집 태스크
 # ──────────────────────────
 @celery_app.task(name="collect_vm_resources")
 def collect_vm_resources():
@@ -128,21 +133,31 @@ def collect_vm_resources():
     try:
         # ─── 실행 중인 VM만 조회 ───
         running_vms = db.query(VM).filter(VM.status == "running").all()
- 
+
         if not running_vms:
             return {"status": "success", "message": "실행 중인 VM 없음"}
- 
+
         print(f"[모니터링] 리소스 수집 시작: {len(running_vms)}개 VM")
- 
+
         for vm in running_vms:
             # ─── 개인키 또는 IP 없으면 스킵 ───
             if not vm.ssh_private_key or not vm.ip_address:
                 continue
- 
+
+            # ─── vmrun 프로세스 체크 선행 (꺼진 VM SSH 시도 방지) ───
+            try:
+                last_octet = vm.ip_address.split(".")[-1]
+                vmx_path   = os.path.join(settings.CLONE_ROOT, f"Clone_{last_octet}", f"Clone_{last_octet}.vmx")
+                if not os.path.exists(vmx_path) or not VMwareController(vmx_path).is_running():
+                    vm_crud.reset_vm_to_stopped(db, vm.id, "stopped")
+                    continue
+            except Exception:
+                continue
+
             try:
                 # ─── 개인키 복호화 ───
                 private_key_str = decrypt_private_key(vm.ssh_private_key)
- 
+
                 # ─── vm_manager에 SSH 수집 위임 ───
                 result = VMwareController.collect_resources(
                     ip=vm.ip_address,
@@ -150,7 +165,7 @@ def collect_vm_resources():
                     pkey_str=private_key_str,
                     os_type=vm.os_type
                 )
- 
+
                 if result is not None:
                     cpu_usage, mem_usage = result
                     vm_crud.update_vm_resources(db, vm.id, cpu_usage, mem_usage)
@@ -158,16 +173,86 @@ def collect_vm_resources():
                     
                 else:
                     vm_crud.increment_vm_ssh_fail(db, vm.id)
- 
+
             except Exception as e:
                 print(f"[모니터링] VM {vm.id} 수집 오류: {e}")
                 vm_crud.increment_vm_ssh_fail(db, vm.id)
- 
+
         return {"status": "success", "collected": len(running_vms)}
- 
+
     except Exception as e:
         print(f"[모니터링] 전체 수집 오류: {e}")
         return {"status": "error", "detail": str(e)}
     
+    finally:
+        db.close()
+
+# ──────────────────────────────────────
+# 7. VM 상태 자동 동기화 태스크
+# ──────────────────────────────────────
+@celery_app.task(name="sync_vm_status")
+def sync_vm_status():
+    """
+    실행 중인 모든 VM의 실제 구동 상태를 60초마다 검증하고 DB를 자동 보정합니다.
+    - VMX 파일 부재 시 status='error' 처리
+    - vmrun 프로세스 종료 감지 시 status='stopped', cpu/mem=None 초기화
+    """
+    db = SessionLocal()
+    synced = []
+    errors = []
+
+    try:
+        # ─── 1. running 상태 VM 전체 조회 ───
+        running_vms = db.query(VM).filter(VM.status == "running").all()
+
+        if not running_vms:
+            return {"status": "success", "message": "동기화 대상 없음"}
+
+        print(f"체크 대상: {len(running_vms)}개 VM")
+
+        for vm in running_vms:
+            # ─── 2. IP 없는 VM 스킵 (생성 중 비정상 레코드 방어) ───
+            if not vm.ip_address or not vm.ssh_private_key:
+                continue
+
+            try:
+                # ─── 3. IP 마지막 옥텟으로 VMX 경로 계산 ───
+                last_octet   = vm.ip_address.split(".")[-1]
+                vmx_path     = os.path.join(
+                    settings.CLONE_ROOT,
+                    f"Clone_{last_octet}",
+                    f"Clone_{last_octet}.vmx"
+                )
+
+                # ─── 4. VMX 파일 부재 → error 처리 ───
+                if not os.path.exists(vmx_path):
+                    print(f"VM {vm.id}: VMX 없음 → error")
+                    vm_crud.reset_vm_to_stopped(db, vm.id, "error")
+                    synced.append({"vm_id": vm.id, "result": "error(no_vmx)"})
+                    continue
+
+                manager = VMwareController(vmx_path)
+                
+                # ─── 5. vmrun list로 실제 프로세스 구동 여부 확인 ───
+                if not manager.is_running():
+                    print(f"VM {vm.id} ({vm.ip_address}): 프로세스 종료 감지 → stopped")
+                    vm_crud.reset_vm_to_stopped(db, vm.id, "stopped")
+                    synced.append({"vm_id": vm.id, "result": "stopped"})
+                else:
+                    # ─── 정상: DB와 실제 상태 일치 ───
+                    print(f"VM {vm.id} ({vm.ip_address}): 정상 running 확인")
+
+            except Exception as e:
+                # ─── 개별 VM 처리 실패 시 전체 루프 중단 없이 계속 진행 ───
+                print(f"VM {vm.id} 체크 중 예외: {e}")
+                errors.append({"vm_id": vm.id, "error": str(e)})
+
+        return {"status": "success", "synced": synced, "errors": errors}
+
+    except Exception as e:
+        # ─── DB 조회 자체 실패 등 치명적 오류 ───
+        print(f"전체 동기화 오류: {e}")
+        return {"status": "error", "detail": str(e)}
+
     finally:
         db.close()
