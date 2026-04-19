@@ -105,7 +105,7 @@ def login(
   user = user_crud.authenticate_user(db, username=username, password=password)
   if not user:
     raise HTTPException(
-      status_code=status.HTTP_401_UNAUTHORIZED,
+      status_code=status.HTTP_400_BAD_REQUEST,
       detail="아이디 또는 비밀번호가 일치하지 않습니다.",
     )
     
