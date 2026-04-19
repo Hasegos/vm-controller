@@ -142,7 +142,7 @@ def update_vm_resources(db: Session, vm_id: int, cpu: float, mem: float):
         db.commit()
         db.refresh(db_vm)
     return db_vm
- 
+
 # ─────────────────────────────────────────────
 # 10. ssh 수집 실패 카운트 증가 및 상태 업데이트
 # ─────────────────────────────────────────────
@@ -159,4 +159,21 @@ def increment_vm_ssh_fail(db: Session, vm_id: int):
             db_vm.status = "error"
         db.commit()
         db.refresh(db_vm)
+    return db_vm
+
+# ─────────────────────────────────────────────────────
+# 11. VM 상태 초기화 (stopped/error 전환 + 리소스 null)
+# ─────────────────────────────────────────────────────
+def reset_vm_to_stopped(db: Session, vm_id: int, status: str):
+    """
+    VM을 stopped 또는 error 상태로 전환하고 리소스 수치를 초기화합니다.
+    """
+    db_vm = db.query(VM).filter(VM.id == vm_id).first()
+    if db_vm:
+        db_vm.status         = status
+        db_vm.latest_cpu     = None
+        db_vm.latest_mem     = None
+        db_vm.is_overloaded  = False
+        db_vm.ssh_fail_count = 0
+        db.commit()
     return db_vm
